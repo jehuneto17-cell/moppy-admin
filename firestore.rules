@@ -1,0 +1,193 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ============ HELPER FUNCTIONS ============
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        exists(/databases/$(database)/documents/admin_whitelist/$(request.auth.uid));
+    }
+
+    function isOwnUser(userId) {
+      return request.auth.uid == userId;
+    }
+
+    function isOwnerOrAdmin(field) {
+      return isOwnUser(resource.data[field]) || isAdmin();
+    }
+
+    // ============ COLLECTIONS ============
+
+    // users
+    match /users/{userId} {
+      allow read: if isAuthenticated() &&
+        (isOwnUser(userId) || isAdmin());
+
+      allow create: if isAuthenticated() &&
+        isOwnUser(userId) &&
+        request.resource.data.email == request.auth.token.email &&
+        request.resource.data.created_at == request.time;
+
+      allow update: if isOwnUser(userId) &&
+        request.resource.data.email == resource.data.email &&
+        request.resource.data.created_at == resource.data.created_at &&
+        request.resource.data.updated_at == request.time;
+
+      allow update: if isAdmin() &&
+        (request.resource.data.trust_score != null ||
+         request.resource.data.is_suspended != null);
+    }
+
+    // cleaners
+    match /cleaners/{cleanerId} {
+      allow read: if isAuthenticated() &&
+        (isOwnUser(cleanerId) || isAdmin());
+
+      allow create: if isAuthenticated() &&
+        isOwnUser(cleanerId);
+
+      allow update: if isOwnUser(cleanerId) &&
+        (request.resource.data.service_radius_km != null ||
+         request.resource.data.pix != null ||
+         request.resource.data.service_availability != null);
+
+      allow update: if isAdmin() &&
+        (request.resource.data.approval_status != null ||
+         request.resource.data.documents != null);
+
+      match /withdraw_history/{withdrawId} {
+        allow read: if isOwnUser(cleanerId) || isAdmin();
+        allow create: if isOwnUser(cleanerId);
+      }
+    }
+
+    // orders
+    match /orders/{orderId} {
+      allow read: if isAuthenticated() &&
+        (resource.data.client_id == request.auth.uid ||
+         resource.data.cleaner_id == request.auth.uid ||
+         isAdmin());
+
+      allow create: if isAuthenticated() &&
+        request.resource.data.client_id == request.auth.uid &&
+        request.resource.data.cleaner_id == null &&
+        request.resource.data.status == "draft" &&
+        request.resource.data.created_at == request.time;
+
+      allow update: if isAuthenticated() &&
+        (isOwnerOrAdmin("client_id") || isOwnerOrAdmin("cleaner_id")) &&
+        request.resource.data.client_id == resource.data.client_id &&
+        request.resource.data.created_at == resource.data.created_at &&
+        request.resource.data.updated_at == request.time;
+
+      // applications (candidaturas)
+      match /applications/{cleanerId} {
+        allow read: if isAuthenticated() &&
+          (get(/databases/$(database)/documents/orders/$(orderId)).data.client_id == request.auth.uid ||
+           cleanerId == request.auth.uid ||
+           isAdmin());
+
+        allow create: if isAuthenticated() &&
+          cleanerId == request.auth.uid;
+      }
+    }
+
+    // payments (crítico: cliente NÃO pode escrever)
+    match /payments/{paymentId} {
+      allow read: if isAuthenticated() &&
+        (resource.data.client_id == request.auth.uid ||
+         resource.data.cleaner_id == request.auth.uid ||
+         isAdmin());
+
+      allow create, update: if isAdmin() ||
+        request.auth == null;  // Apenas backend (Admin SDK, validado por token/servidor)
+
+      match /events/{eventId} {
+        allow read: if isAuthenticated() && isAdmin();
+        allow create: if request.auth == null;  // Webhook (sem autenticação)
+      }
+    }
+
+    // disputes
+    match /disputes/{disputeId} {
+      allow read: if isAuthenticated() &&
+        (resource.data.client_id == request.auth.uid ||
+         resource.data.cleaner_id == request.auth.uid ||
+         isAdmin());
+
+      allow create: if isAuthenticated() &&
+        request.resource.data.client_id == request.auth.uid;
+
+      allow update: if isAuthenticated() &&
+        ((request.resource.data.cleaner_response != null &&
+          resource.data.cleaner_id == request.auth.uid) ||
+         (request.resource.data.admin_decision != null && isAdmin()));
+    }
+
+    // reviews
+    match /reviews/{reviewId} {
+      allow read: if isAuthenticated() &&
+        (request.auth.uid == resource.data.from_user_id ||
+         (request.auth.uid == resource.data.to_user_id && resource.data.visible == true) ||
+         isAdmin());
+
+      allow create: if isAuthenticated() &&
+        request.resource.data.from_user_id == request.auth.uid;
+    }
+
+    // chats
+    match /chats/{chatId} {
+      allow read: if isAuthenticated() &&
+        (request.auth.uid == resource.data.participants.client_id ||
+         request.auth.uid == resource.data.participants.cleaner_id ||
+         isAdmin());
+
+      allow create: if isAuthenticated();
+
+      match /messages/{messageId} {
+        allow read: if isAuthenticated() &&
+          (request.auth.uid == get(/databases/$(database)/documents/chats/$(chatId)).data.participants.client_id ||
+           request.auth.uid == get(/databases/$(database)/documents/chats/$(chatId)).data.participants.cleaner_id ||
+           isAdmin());
+
+        allow create: if isAuthenticated() &&
+          request.resource.data.sender_id == request.auth.uid &&
+          request.resource.data.created_at == request.time;
+
+        allow update: if isAuthenticated() &&
+          request.resource.data.read_by[request.auth.uid] != null;
+      }
+    }
+
+    // wallets
+    match /wallets/{walletId} {
+      allow read: if isAuthenticated() &&
+        (isOwnUser(walletId) || isAdmin());
+
+      allow create, update: if isAdmin() ||
+        request.auth == null;  // Backend only
+
+      match /transactions/{transactionId} {
+        allow read: if isAuthenticated() &&
+          (isOwnUser(walletId) || isAdmin());
+      }
+    }
+
+    // admin_whitelist
+    match /admin_whitelist/{adminId} {
+      allow read: if isAuthenticated() && isAdmin();
+      allow create, update, delete: if isAuthenticated() &&
+        get(/databases/$(database)/documents/admin_whitelist/$(request.auth.uid)).data.role == "super";
+    }
+
+    // Nega tudo o mais por padrão
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

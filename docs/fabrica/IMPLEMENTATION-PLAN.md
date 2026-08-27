@@ -24,12 +24,12 @@ Checkpoint após cada bloco. Progresso registrado aqui + em `ESTADO.md`.
 ## Blocos de Implementação
 
 ### BLOCO 1 — SETUP INICIAL
-**Status:** ⏳ Pendente
+**Status:** ✅ Completo
 
-- [ ] **1.1** Git init + estrutura monorepo (apps/mobile, apps/web-admin, shared/)
-- [ ] **1.2** Firebase Emulator Suite configurado local (Auth + Firestore + Storage) + mocks de Asaas/Cloudinary em `shared/mocks/`
+- [x] **1.1** Git init + estrutura monorepo (apps/mobile, apps/web-admin, shared/) — commit `8443890`
+- [x] **1.2** Firebase Emulator Suite configurado local (Auth + Firestore + Storage) + mocks de Asaas/Cloudinary em `shared/mocks/` — testado com sucesso (Java 21 instalado via winget)
 
-**Checkpoint:** `npm run dev` sobe emuladores + apps sem erro.
+**Checkpoint:** ✅ `firebase emulators:start` sobe Auth+Firestore+UI sem erro. Rules e índices carregados do DATABASE.md (Gate 6).
 
 ---
 
