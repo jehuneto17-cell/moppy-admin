@@ -74,13 +74,20 @@ Em 2026-08-27 o Jehu passou o **Hand off to Claude Code** do Claude Design — a
 ---
 
 ### BLOCO 4 — FEATURES CLIENTE
-**Status:** ⏳ Pendente
+**Status:** ✅ Completo (parcial — ver notas)
 
-- [ ] **4.1** Home (C08), Ver Candidatas (C16), Perfil (C23) — dados do Firestore emulator
-- [ ] **4.2** Criar Pedido (C11-C14) — tipo, data, endereço, cálculo de preço
-- [ ] **4.3** Checkout (C15) — mock de tokenização Asaas
+- [x] **4.1** Home (C08) com dados reais do Firestore (abas Próximos/Histórico/Cancelados, estados loading/vazio/erro/sucesso, FAB); Perfil (C26, não C23 — id real da tela) com acordeão de 5 seções (Dados Pessoais, Endereços, Cartões, Notificações, Mais) editando Firestore de verdade
+- [x] **4.2** Wizard completo de Criar Pedido (C09-C15, 7 passos) com Zustand (`useCreateOrderStore`): Endereço → Tipo → Tamanho → Adicionais → Data/Hora → Revisão de Preço → Urgência
+- [x] **4.3** Checkout (C16) com cartões salvos + tokenização mock do Asaas, gravação do pedido (`draft`→`open`, batendo com a regra do Firestore) e confirmação (C17)
+- [x] C18 (Lista de Candidatas) — versão inicial em `(client)/pedido/[id].tsx`, lê `orders/{id}/applications` real (vazio até o Bloco 5 criar a candidatura)
 
-**Checkpoint:** Cliente cria pedido até checkout (mock).
+**Checkpoint:** ✅ Testado ponta a ponta contra o emulador: criar pedido grava `draft`→`open` respeitando as regras, query da Home (client_id + orderBy scheduled_at) funciona sem índice composto extra, subcoleções `addresses`/`cards` funcionam.
+
+**Extensão de schema (fora do Gate 6 original):** C09/C16 assumem um "livro" de endereços e cartões salvos que o `DATABASE.md` aprovado não tinha. Adicionadas duas subcoleções mínimas, dono-apenas: `users/{uid}/addresses` e `users/{uid}/cards` (regras em `firestore.rules`, comentado no próprio arquivo).
+
+**Deixado para depois (fora do escopo do Bloco 4, mas mapeado):**
+- C19 (Perfil da Candidata), C20 (Pedido em Andamento), C21 (Código de Confirmação), C22 (Chat), C23 (Está Tudo Certo), C24 (Abrir Disputa), C25 (Avaliação) — todo o ciclo de vida do pedido *depois* de uma faxineira se candidatar. `(client)/pedido/[id].tsx` hoje só mostra a lista de candidatas (se `status=open`) ou um resumo genérico (outros status) — sem isso, não tem como testar de ponta a ponta sem uma faxineira real candidatando (Bloco 5).
+- `shared/mocks/asaas.ts` não está sendo usado pelo mobile — Metro (bundler do Expo) não resolve o workspace `shared/` sem config extra de monorepo (watchFolders/extraNodeModules). Criei uma cópia local em `apps/mobile/src/services/asaas.ts` só com `tokenizeCard`. Resolver de verdade (ou aceitar a duplicação) no Bloco 9.
 
 ---
 
@@ -153,4 +160,4 @@ Em 2026-08-27 o Jehu passou o **Hand off to Claude Code** do Claude Design — a
 
 ## Próximo Passo
 
-Iniciar **BLOCO 4 — Features Cliente** (C08 Home, C09-C16 Criar Pedido/Checkout, C18 Candidatas, C26 Perfil), lendo cada `.dc.html` real via `DesignSync` antes de implementar.
+Iniciar **BLOCO 5 — Features Faxineira** (F01 Buscar Trabalho, F05 Minhas Candidaturas, F08/F10 Agenda, F19/F20 Perfil/Histórico), lendo cada `.dc.html` real via `DesignSync` antes de implementar. A candidatura criada aqui (`orders/{id}/applications`) é o que preenche a lista de candidatas do Bloco 4 (`(client)/pedido/[id].tsx`) — testar os dois lados juntos assim que Bloco 5 tiver uma candidatura real.
