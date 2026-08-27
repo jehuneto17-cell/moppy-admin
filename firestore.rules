@@ -21,6 +21,11 @@ service cloud.firestore {
       return isOwnUser(resource.data[field]) || isAdmin();
     }
 
+    function isCleaner() {
+      return isAuthenticated() &&
+        'cleaner' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
     // ============ COLLECTIONS ============
 
     // users
@@ -71,6 +76,13 @@ service cloud.firestore {
         (request.resource.data.approval_status != null ||
          request.resource.data.documents != null);
 
+      // Ponteiros pras próprias candidaturas (order_id + applied_at) — evita
+      // depender de collectionGroup, que não respeitou o match aninhado de
+      // orders/{orderId}/applications neste emulador (testado no Bloco 5).
+      match /my_applications/{orderId} {
+        allow read, write: if isOwnUser(cleanerId);
+      }
+
       match /withdraw_history/{withdrawId} {
         allow read: if isOwnUser(cleanerId) || isAdmin();
         allow create: if isOwnUser(cleanerId);
@@ -79,9 +91,12 @@ service cloud.firestore {
 
     // orders
     match /orders/{orderId} {
+      // Gate 6 (DATABASE.md) previa "faxineira pode ler pedidos abertos" na prosa,
+      // mas a regra original só cobria dono/faxineira-designada — corrigido no Bloco 5.
       allow read: if isAuthenticated() &&
         (resource.data.client_id == request.auth.uid ||
          resource.data.cleaner_id == request.auth.uid ||
+         (resource.data.status == "open" && isCleaner()) ||
          isAdmin());
 
       allow create: if isAuthenticated() &&
@@ -99,9 +114,9 @@ service cloud.firestore {
       // applications (candidaturas)
       match /applications/{cleanerId} {
         allow read: if isAuthenticated() &&
-          (get(/databases/$(database)/documents/orders/$(orderId)).data.client_id == request.auth.uid ||
-           cleanerId == request.auth.uid ||
-           isAdmin());
+          (cleanerId == request.auth.uid ||
+           isAdmin() ||
+           get(/databases/$(database)/documents/orders/$(orderId)).data.client_id == request.auth.uid);
 
         allow create: if isAuthenticated() &&
           cleanerId == request.auth.uid;

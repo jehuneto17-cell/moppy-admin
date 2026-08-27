@@ -92,12 +92,21 @@ Em 2026-08-27 o Jehu passou o **Hand off to Claude Code** do Claude Design — a
 ---
 
 ### BLOCO 5 — FEATURES FAXINEIRA
-**Status:** ⏳ Pendente
+**Status:** ✅ Completo
 
-- [ ] **5.1** Buscar Trabalho (F01), Minhas Candidaturas (F05)
-- [ ] **5.2** Agenda (F08), Perfil + KYC (F20) — upload mock (sem Cloudinary real)
+- [x] **5.1** Onboarding completo: F01 (mesma tela do C03), F02 (4 passos KYC — RG, CPF+número, selfie, comprovante — captura mockada, sem câmera/Cloudinary real), F03 (Termos + raio de atuação, chips 5/10/15/20km em vez do slider contínuo do design), F04 (Aguardando Aprovação, lê `cleaners/{uid}` em tempo real)
+- [x] **5.2** F05+F09 (Buscar Trabalho com abas internas Feed/Minhas Candidaturas — confirmado no USER-FLOWS.md que são a mesma tela), F07 (Detalhe do Pedido + candidatar-se, com checagem de conflito de agenda), F08 (Candidatura Resultado), F10 (Agenda), F19 (Perfil + Documentos + PIX + raio), F20 (Histórico + Ganho total)
 
-**Checkpoint:** Faxineira se candidata e gerencia agenda.
+**Checkpoint:** ✅ Testado ponta a ponta contra o emulador: pedido criado pelo cliente aparece no feed da faxineira mesmo com `approval_status=pending` (regra é sobre papel, não aprovação), aprovação manual simulando Bloco 6, candidatura criada e visível tanto pra faxineira (Minhas Candidaturas) quanto pro cliente (C18), cliente seleciona a faxineira, checagem de conflito de agenda funciona.
+
+**Bug real do Gate 6 corrigido:** `DATABASE.md` previa em prosa "faxineira pode ler pedidos abertos", mas a regra do Firestore que eu transcrevi no Bloco 1 só cobria dono/faxineira-designada — nenhuma faxineira conseguia ver o feed. Adicionado helper `isCleaner()` (lê `users/{uid}.role`) e branch `status=="open"` na regra de `orders`.
+
+**Achado técnico (custou tempo, documentado pra não repetir):** o match aninhado `orders/{orderId}/applications/{cleanerId}` **não é respeitado por queries `collectionGroup`** neste emulador — testado com regra trivial `allow read: if isAuthenticated()` e mesmo assim caiu no deny padrão. Um `match /{path=**}/applications/{cleanerId}` explícito também deu erro (`Null value error`, causa não identificada). Solução adotada: ponteiro em `cleaners/{uid}/my_applications/{orderId}` (mesmo padrão de `addresses`/`cards`) + leitura individual do doc real em `orders/{orderId}/applications/{uid}` — evita `collectionGroup` inteiramente, sem índice composto extra.
+
+**Deixado para depois:**
+- Carteira (F16 Carteira, F17 Solicitar Saque) — adiado pro Bloco 7 (Pagamentos), já que saque é fundamentalmente uma transferência Asaas.
+- Sincronização em tempo real de "quem foi selecionada" pras outras candidatas (status `declined` automático quando o cliente escolhe outra) — depende da tela de "Ver Perfil"/"Contratar" do lado cliente (C19), que também ficou de fora do Bloco 4.
+- KYC real: câmera de verdade (`expo-image-picker`) e upload real no Cloudinary — hoje é um botão "Simular captura". Resolver no Bloco 9.
 
 ---
 
@@ -160,4 +169,6 @@ Em 2026-08-27 o Jehu passou o **Hand off to Claude Code** do Claude Design — a
 
 ## Próximo Passo
 
-Iniciar **BLOCO 5 — Features Faxineira** (F01 Buscar Trabalho, F05 Minhas Candidaturas, F08/F10 Agenda, F19/F20 Perfil/Histórico), lendo cada `.dc.html` real via `DesignSync` antes de implementar. A candidatura criada aqui (`orders/{id}/applications`) é o que preenche a lista de candidatas do Bloco 4 (`(client)/pedido/[id].tsx`) — testar os dois lados juntos assim que Bloco 5 tiver uma candidatura real.
+Iniciar **BLOCO 6 — Admin** (A01-A09: Login Admin, Dashboard, Aprovações Pendentes, Pedidos, Disputas, Financeiro, Preços por Cidade, Usuários, Score de Confiabilidade), lendo cada `.dc.html` real via `DesignSync`. É aqui que a aprovação de faxineiras deixa de ser manual (script) e vira um fluxo de verdade — o Bloco 5 ficou testado com aprovação simulada.
+
+**Atenção:** o Bloco 2 (Auth web admin) foi feito ANTES do hand-off do Claude Design chegar — a tela de login atual usa Tailwind genérico, não os tokens/componentes reais (`A01 - Login Admin.dc.html`). Corrigir isso junto com o Bloco 6, já que os componentes do `_ds_bundle.js` são React puro e portam quase 1:1 pro Next.js.
