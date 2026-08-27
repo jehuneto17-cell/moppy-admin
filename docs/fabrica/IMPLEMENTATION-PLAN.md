@@ -21,6 +21,20 @@ Checkpoint após cada bloco. Progresso registrado aqui + em `ESTADO.md`.
 
 ---
 
+## Fonte de Design (Claude Design handoff)
+
+Em 2026-08-27 o Jehu passou o **Hand off to Claude Code** do Claude Design — as 55 telas reais (não os prompts de texto do `UI-SPEC.md`, que ficaram desatualizados: cor primária mudou de `#7C3AED` para `#A78BFA`, por exemplo).
+
+- **Projeto:** "Moppy splash screen", `projectId: 0ef402d5-9731-41a3-b17a-3b4d4f4fca6f` — acessar via `DesignSync` (`get_project`/`list_files`/`get_file`, sem precisar de `list_projects` já que não é um projeto tipo design-system).
+- **Telas:** A01-A09 (admin), C01-C26 (cliente), F01-F20 (faxineira) — cada uma em `<Nome>.dc.html`, formato proprietário (DSL com `x-import`, `sc-if`, `{{ }}`) que referencia os 26 componentes do design system. Ler com `get_file` e traduzir manualmente — não dá pra copiar/colar.
+- **Design system:** `_ds/moppy-design-system-.../` — tokens (`tokens/*.css`) e os 26 componentes (`_ds_bundle.js`, React.createElement puro, direto portável pro web admin).
+- **Logo real** (`assets/moppy-logo.png`, gota d'água, 1254×1254px) **excede os 256KB do `get_file`** — baixa truncado/corrompido. Usando wordmark "Moppy" em Inter Bold roxo como fallback (convenção do próprio design system pra asset ausente). Se precisar do logo de verdade, Jehu precisa exportar em partes ou mandar o arquivo direto.
+- **Componentes portados pro mobile** (`apps/mobile/src/components/ui/`): Icon (SVGs exatos), Button, Input, LabeledInput, Checkbox, Radio, Badge, Card, Avatar, Spinner, Alert, Rating. Faltam: Dropdown, ImageUpload, Modal, ProgressBar, Timer, Timeline, ChatBubble/TypingIndicator, ContactCard, OrderCard, CandidateCard, IconButton, TabBar — construir sob demanda, na tela que precisar (ver Blocos 4-6).
+- **Tokens em `apps/mobile/src/theme.ts`**: cores, fontes (`Inter_400Regular/500Medium/700Bold` via `@expo-google-fonts/inter` — RN ignora `fontWeight` com fonte customizada, sempre usar `fontFamily` por peso), espaçamento, raios, sombras — tudo transcrito de `tokens/*.css`.
+- **Web admin:** ainda não usa os tokens/componentes reais (Bloco 2 foi feito antes do handoff, com Tailwind genérico). Corrigir quando chegar no Bloco 6 (A01-A09) — os componentes do `_ds_bundle.js` são React puro, portam quase 1:1.
+
+---
+
 ## Blocos de Implementação
 
 ### BLOCO 1 — SETUP INICIAL
@@ -49,11 +63,13 @@ Checkpoint após cada bloco. Progresso registrado aqui + em `ESTADO.md`.
 ---
 
 ### BLOCO 3 — NAVEGAÇÃO BASE
-**Status:** ⏳ Pendente
+**Status:** ✅ Completo
 
-- [ ] **3.1** Expo Router + tabs (Cliente: Home\|Perfil / Faxineira: Buscar\|Agenda\|Carteira\|Perfil)
+- [x] **3.1** Expo Router + grupos de rota reais: `(auth)` (login), `(role-choice)` (C03), `(client)` tabs (Home\|Perfil), `(cleaner)` tabs (Buscar\|Agenda\|Carteira\|Perfil) + `app/index.tsx` (C01 Splash + lógica de redirect por auth/role)
+- [x] Biblioteca de componentes UI (`src/components/ui/`) construída a partir do design system real — ver seção acima
+- [x] C01 (Splash), C02 (Login/Cadastro), C03 (Escolha de Papel) reconstruídas pixel-a-pixel a partir dos `.dc.html` reais (substituindo a versão anterior baseada no `UI-SPEC.md` desatualizado)
 
-**Checkpoint:** Todos os fluxos navegáveis.
+**Checkpoint:** ✅ Testado ponta a ponta contra o emulador: cadastro cria doc em `users` (regras respeitadas), escolha de papel atualiza `role` e redireciona pro grupo de tabs certo. `npx tsc --noEmit` limpo.
 
 ---
 
@@ -137,4 +153,4 @@ Checkpoint após cada bloco. Progresso registrado aqui + em `ESTADO.md`.
 
 ## Próximo Passo
 
-Iniciar **BLOCO 1.1 — Git + monorepo**.
+Iniciar **BLOCO 4 — Features Cliente** (C08 Home, C09-C16 Criar Pedido/Checkout, C18 Candidatas, C26 Perfil), lendo cada `.dc.html` real via `DesignSync` antes de implementar.
