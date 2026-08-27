@@ -111,11 +111,22 @@ Em 2026-08-27 o Jehu passou o **Hand off to Claude Code** do Claude Design — a
 ---
 
 ### BLOCO 6 — ADMIN
-**Status:** ⏳ Pendente
+**Status:** ✅ Completo (escopo reduzido — ver notas)
 
-- [ ] **6.1** Dashboard, Approvals, Orders, Financial (Next.js + Firestore emulator)
+- [x] **6.1** Login (A01, sem TOTP — ver nota), Dashboard (A02, KPIs reais + receita por cidade, sem gráfico de linha), Aprovações Pendentes (A03, real — substitui o script manual de aprovação usado nos Blocos 4/5), Pedidos (A04, tabela + painel + cancelar, sem sort/filtro dropdown), Usuários (A08, busca + suspender)
 
-**Checkpoint:** Admin aprova faxineira, vê pedidos.
+**Checkpoint:** ✅ Testado ponta a ponta contra o emulador (via script, autenticado como admin de verdade): lista pendentes, lista todos os pedidos, lista todos os usuários, aprova faxineira, suspende usuário, cancela pedido — todas as queries/regras passaram. Páginas confirmadas atrás do gate de sessão (307 sem cookie).
+
+**Reduzido de propósito (não building do zero, decisão consciente):**
+- **A05 Disputas, A06 Financeiro, A07 Preços por Cidade:** placeholders honestos explicando por quê (nada gera disputas ainda; financeiro detalhado é pagamento de verdade = Bloco 7; preço por cidade exigiria mover `price.ts` pro Firestore).
+- **A09 Score de Confiabilidade:** o próprio design já marca como "(v2)" no nav — fora de escopo por definição do design, não decisão minha.
+- **TOTP no login (A01):** o design mostra um segundo fator de 6 dígitos, mas não existe tela de enrollment no lote — implementar só a verificação sem enrollment real seria segurança de fachada. Login fica email+senha + cookie de sessão (já robusto: `verifySessionCookie` + gate por `admin_whitelist`).
+- **Sort/filtro por dropdown em Pedidos (A04):** tabela mostra todos os pedidos ordenados por data de criação, sem os selects de Status/Cidade/Período do design.
+- **Gráfico de linha "pedidos por dia" (A02):** mostrei só os KPIs + receita por cidade (bars simples), sem o polyline SVG de 30 dias.
+
+**Nota de segurança:** o primeiro admin não pode se auto-cadastrar em `admin_whitelist` via client SDK (regra exige que um admin "super" já exista) — isso é intencional. Bootstrap do primeiro admin precisa do Admin SDK (server-side, bypassa regras), do jeito que fiz no Bloco 2.
+
+**Escala:** Dashboard/Aprovações/Pedidos/Usuários fazem `getDocs`/`onSnapshot` na coleção INTEIRA sem paginação — ok pro volume de teste de agora, mas não escala. Resolver com paginação (`limit`/`startAfter`) ou Cloud Functions de agregação antes de produção real.
 
 ---
 
@@ -169,6 +180,4 @@ Em 2026-08-27 o Jehu passou o **Hand off to Claude Code** do Claude Design — a
 
 ## Próximo Passo
 
-Iniciar **BLOCO 6 — Admin** (A01-A09: Login Admin, Dashboard, Aprovações Pendentes, Pedidos, Disputas, Financeiro, Preços por Cidade, Usuários, Score de Confiabilidade), lendo cada `.dc.html` real via `DesignSync`. É aqui que a aprovação de faxineiras deixa de ser manual (script) e vira um fluxo de verdade — o Bloco 5 ficou testado com aprovação simulada.
-
-**Atenção:** o Bloco 2 (Auth web admin) foi feito ANTES do hand-off do Claude Design chegar — a tela de login atual usa Tailwind genérico, não os tokens/componentes reais (`A01 - Login Admin.dc.html`). Corrigir isso junto com o Bloco 6, já que os componentes do `_ds_bundle.js` são React puro e portam quase 1:1 pro Next.js.
+Iniciar **BLOCO 7 — Pagamentos** (webhook Asaas mock, cron de pré-autorização D-1, split, Carteira/Saque da faxineira — F16/F17 que ficaram de fora do Bloco 5). É onde "Financeiro" e "Preços por Cidade" do admin ganham sentido de verdade também, se sobrar tempo.
