@@ -34,12 +34,17 @@ Checkpoint após cada bloco. Progresso registrado aqui + em `ESTADO.md`.
 ---
 
 ### BLOCO 2 — AUTENTICAÇÃO
-**Status:** ⏳ Pendente
+**Status:** ✅ Completo
 
-- [ ] **2.1** Firebase Auth (emulator) + tela C02 mobile (login/cadastro)
-- [ ] **2.2** Firebase Auth (emulator) + login web admin
+- [x] **2.1** Expo scaffold real (template `tabs`, Expo Router, SDK 57) + Firebase Auth (emulator) + tela C02 (login/cadastro) — testado: cadastro, login e senha errada mapeados corretamente
+- [x] **2.2** Next.js scaffold real (App Router + Tailwind) + login web admin + sessão via cookie httpOnly (Firebase Admin SDK, `verifySessionCookie`) + gate por `admin_whitelist` — testado: usuário não-admin recebe 403, admin acessa dashboard
 
-**Checkpoint:** Login/cadastro funcionando contra o emulator.
+**Checkpoint:** ✅ Login/cadastro funcionando contra o emulator (mobile + web). Web admin usa `proxy.ts` (convenção Next.js 16, sucessora de middleware.ts) rodando em runtime Node — verificação de sessão acontece ali mesmo, sem duplicar checagem.
+
+**Notas técnicas:**
+- Mobile: template `tabs` (não o `default` do SDK 57, que vem com NativeWind/glass-effect fora do escopo). Rota `app/login.tsx` fora dos grupos — reorganização em `(auth)/(client)/(cleaner)` fica pro Bloco 3.
+- Web: `apps/web-admin/lib/firebase.ts` (client) + `firebase-admin.ts` (admin, detecta emulador via env vars automaticamente).
+- Admin só acessa o painel se tiver doc em `admin_whitelist` — checado uma vez na criação da sessão (Firestore read), não a cada request. Se a Jehu revogar acesso, a sessão existente (5 dias) só cai via `revokeRefreshTokens` (não implementado ainda — ok pro estágio atual).
 
 ---
 
