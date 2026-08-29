@@ -38,6 +38,8 @@ export default function PedidosPage() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const [reason, setReason] = useState("");
+  const [capturing, setCapturing] = useState(false);
+  const [captureMsg, setCaptureMsg] = useState<string | null>(null);
 
   useEffect(() => {
     const q = query(collection(db, "orders"), orderBy("created_at", "desc"));
@@ -55,6 +57,21 @@ export default function PedidosPage() {
     });
     setCancelling(false);
     setReason("");
+  }
+
+  async function handleCapture() {
+    if (!active) return;
+    setCapturing(true);
+    setCaptureMsg(null);
+    try {
+      const res = await fetch(`/api/orders/${active.id}/capture`, { method: "POST" });
+      const data = await res.json();
+      setCaptureMsg(res.ok ? "Pagamento capturado e repassado à faxineira." : data.error);
+    } catch {
+      setCaptureMsg("Falha ao capturar pagamento.");
+    } finally {
+      setCapturing(false);
+    }
   }
 
   return (
@@ -113,6 +130,19 @@ export default function PedidosPage() {
                 Status atual: <strong>{(STATUS_LABEL[active.status] ?? STATUS_LABEL.draft).label}</strong>
               </p>
               <p style={{ fontSize: 12, color: "#6B7280" }}>Faxineira: {active.cleaner_id ? active.cleaner_id.slice(0, 8) : "nenhuma ainda"}</p>
+
+              {active.status === "confirmed" && (
+                <>
+                  <button
+                    onClick={handleCapture}
+                    disabled={capturing}
+                    style={{ width: "100%", height: 44, marginTop: 20, borderRadius: 8, border: "none", background: capturing ? "#C4B5FD" : "#A78BFA", color: "#fff", fontSize: 14, fontWeight: 700, cursor: capturing ? "not-allowed" : "pointer" }}
+                  >
+                    {capturing ? "Capturando..." : "Capturar pagamento"}
+                  </button>
+                  {captureMsg && <p style={{ fontSize: 12, color: "#6B7280", marginTop: 8 }}>{captureMsg}</p>}
+                </>
+              )}
 
               {!["completed", "cancelled"].includes(active.status) && (
                 <>

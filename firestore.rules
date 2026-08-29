@@ -43,6 +43,10 @@ service cloud.firestore {
         request.resource.data.created_at == resource.data.created_at &&
         request.resource.data.updated_at == request.time;
 
+      allow update: if isOwnUser(userId) &&
+        (request.resource.data.fcm_token != null ||
+         request.resource.data.fcm_token_updated_at != null);
+
       allow update: if isAdmin() &&
         (request.resource.data.trust_score != null ||
          request.resource.data.is_suspended != null);
@@ -120,6 +124,12 @@ service cloud.firestore {
 
         allow create: if isAuthenticated() &&
           cleanerId == request.auth.uid;
+
+        // Cliente escolhe a candidata (C19): marca a escolhida "selected" e as
+        // demais "declined". Só o dono do pedido, e só pra esses dois valores.
+        allow update: if isAuthenticated() &&
+          get(/databases/$(database)/documents/orders/$(orderId)).data.client_id == request.auth.uid &&
+          request.resource.data.status in ["selected", "declined"];
       }
     }
 

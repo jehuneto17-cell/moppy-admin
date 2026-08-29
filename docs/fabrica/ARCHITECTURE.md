@@ -9,7 +9,7 @@
 | **Mobile (Cliente + Faxineira)** | Expo + React Native | 51+ | Código compartilhado iOS/Android, deploy rápido via EAS |
 | **Web Admin** | Next.js 14 + React | 14+ | SSR, API routes, deploy simples na Vercel |
 | **Backend Serverless** | Node.js em `/api` (Vercel) | 18+ | Pagamentos, webhooks, jobs agendados (Cron) |
-| **Autenticação** | Firebase Auth | — | Email/senha, suporte a OAuth (futuro) |
+| **Autenticação** | Firebase Auth | — | Email/senha + login com Google (mobile) |
 | **Banco de Dados** | Firestore (Firebase) | — | NoSQL tempo real, segurança rule-based, escalável |
 | **Armazenamento Mídia** | Cloudinary (imagens públicas) | — | Otimização automática, CDN global |
 | **Armazenamento Sensível** | Firebase Storage (documentos KYC) | — | Seguro, chave privada, não expõe URLs |

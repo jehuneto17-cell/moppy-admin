@@ -71,6 +71,8 @@ Em 2026-08-27 o Jehu passou o **Hand off to Claude Code** do Claude Design — a
 
 **Checkpoint:** ✅ Testado ponta a ponta contra o emulador: cadastro cria doc em `users` (regras respeitadas), escolha de papel atualiza `role` e redireciona pro grupo de tabs certo. `npx tsc --noEmit` limpo.
 
+**2026-08-28 — Login com Google adicionado** (mudança de escopo, era "futuro" no `ARCHITECTURE.md`): botão "Entrar/Cadastrar com o Google" em `(auth)/login.tsx` via `expo-auth-session/providers/google`, `loginWithGoogle` em `useAuth.ts` (cria o doc em `users` só se `isNewUser`, mesmo shape do cadastro por e-mail — passa pela regra existente sem mudança no `firestore.rules`). `npx tsc --noEmit` limpo. Não testável ponta a ponta ainda: precisa do provider Google ativado no Firebase Console + OAuth Client IDs (iOS/Android) reais — ver `CONTAS-NECESSARIAS.md`.
+
 ---
 
 ### BLOCO 4 — FEATURES CLIENTE
@@ -131,20 +133,83 @@ Em 2026-08-27 o Jehu passou o **Hand off to Claude Code** do Claude Design — a
 ---
 
 ### BLOCO 7 — PAGAMENTOS
-**Status:** ⏳ Pendente
+**Status:** ✅ Completo (backend + Carteira/Saque; sem UI de confirmação do cliente — ver notas)
 
-- [ ] **7.1** Webhook Asaas (mock) + cron pré-autorização (lógica completa, dispara contra mock)
+- [x] **7.1** `lib/split.ts` (comissão 15% + taxa Asaas 50/50 + antecipação D+15, mesma fórmula de `apps/mobile/src/utils/price.ts::computeCleanerEarnings`)
+- [x] **7.2** `POST /api/webhooks/asaas` — idempotência por `event_id` (evento duplicado é ignorado, testado)
+- [x] **7.3** `GET /api/cron/preauth` — roda de hora em hora: pré-autoriza pedidos `confirmed` agendados pra amanhã (D-1) + reprocessa retries (1h entre tentativas, 2 retries, depois `preauth_failed` terminal)
+- [x] **7.4** `POST /api/orders/[orderId]/capture` (admin) — captura + split + credita `wallets/{cleanerId}` ("a liberar" até D+15). Ação manual do admin (Pedidos → "Capturar pagamento") — normalmente seria automático via confirmação do cliente (C20-C25), fora do escopo deste bloco.
+- [x] **7.5** `GET /api/cron/release-balance` — move saldo de "a liberar" pra "disponível" quando `release_at` (D+15) vence
+- [x] **7.6** `POST /api/wallets/withdraw` — saque da faxineira: valida mínimo R$20, saldo disponível, chave PIX cadastrada; chama mock `createTransfer`
+- [x] **7.7** F16 (Carteira) e F17 (Solicitar Saque) reais no mobile, substituindo os placeholders — lêem `wallets/{cleanerId}` de verdade
 
-**Checkpoint:** Fluxo de pagamento simula D-1 → confirmação.
+**Checkpoint:** ✅ Testado ponta a ponta contra o emulador (script E2E, apagado depois de rodar): pedido confirmado → cron pré-autoriza → falha de cartão gera 2 retries (1h cada) → `preauth_failed` terminal → webhook duplicado ignorado (idempotência) → admin captura → split correto (R$90 → comissão R$13,50 → taxa R$1,60 → líquido R$74,90, bate com o exemplo do F07) → saldo "a liberar" → cron de release move pra "disponível" → saque debita corretamente → saque abaixo de R$20 é rejeitado.
+
+**Nota:** o `shared/mocks/asaas.ts::preauthorize` ganhou um token especial (`card_mock_declined`) só pra permitir testar o caminho de falha/retry de forma determinística — não muda o comportamento pra tokens reais/mockados normais.
+
+**Deixado para depois (fora do escopo deste bloco):**
+- ~~C20-C25 (confirmação do cliente "está tudo certo?", auto-confirmação em 24h, disputa)~~ — feito no Bloco 4.5, abaixo.
+- Notificação + cancelamento automático após 6h de pré-auth falha (Bloco 8, depende de infra de notificações que ainda não existe)
+- Vercel Cron real só roda 1x/dia no plano Hobby — o `schedule: "0 * * * *"` (hora em hora) do `vercel.json` é o intervalo correto pra spec, mas pode precisar de ajuste conforme o plano do Vercel quando o Jehu criar a conta (Bloco 9)
+
+---
+
+### BLOCO 4.5 — CICLO DO PEDIDO (C19-C25, F06, F11-F15, F18, A05)
+**Status:** ✅ Completo
+
+Fecha o buraco deixado pelos Blocos 4/5: até aqui nenhum pedido passava de `status="open"` porque a tela de escolha de faxineira e todo o ciclo pós-candidatura não existiam. Todas as 55 telas já estavam desenhadas no Claude Designer (handoff `projectId 0ef402d5-...`) — este bloco só traduziu as que faltavam pra código, igual foi feito com C01-C03 no Bloco 3.
+
+**Cliente:**
+- [x] C19 (Perfil da Candidata) — mostra avaliações reais (`reviews` onde `to_user_id`), "Escolher" marca a candidata `selected`, as demais `declined`, confirma o pedido (`status="confirmed"`), gera `arrival_code` (4 dígitos) e cria `chats/{orderId}`
+- [x] `pedido/[id]/index.tsx` virou C20 de verdade — timeline (confirmado/em serviço/pendente de confirmação) derivada de `arrived_at`/`cleaner_completed_at`, modal de código (C21) inline, card da faxineira com atalho pro chat
+- [x] C22 (Chat) e C25 (Avaliação) — componentes compartilhados `src/components/chat/ChatScreen.tsx` e `src/components/review/ReviewScreen.tsx`, usados também pelo lado faxineira (mesma UI dos dois lados, como F05/F09 já eram)
+- [x] C23 ("Está tudo certo?") — chama `POST /api/orders/[id]/confirm` (idToken), que roda a mesma captura do Bloco 7
+- [x] C24 (Abrir Disputa) — texto (mín. 50 char) + até 3 fotos (mock Cloudinary) → `POST /api/disputes`
+
+**Faxineira:**
+- [x] F06 (Filtros do Feed) — modal com tipo/tamanho/data (chips, sem slider contínuo — mesmo corte já feito em F03); sem filtro de distância porque o feed não tem distância real calculada (só as candidaturas têm, mockada)
+- [x] F11 (Confirmação de Chegada) — código comparado a `order.arrival_code`; caminho alternativo (GPS+selfie) é mock igual ao KYC do F02, já que não há `lat/lng` confiável no pedido nem `expo-location` instalado
+- [x] F12 (Serviço em Andamento) — cronômetro real a partir de `arrived_at`, "Concluído" seta `cleaner_completed_at` + `confirm_deadline_at` (D+24h)
+- [x] F13 (Aguardando Confirmação) — countdown real, navega sozinho quando o cliente confirma ou abre disputa
+- [x] F14 (Responder Disputa) — grava `cleaner_response` direto (regra já permitia)
+- [x] F15/F18 — mesmos componentes compartilhados do lado cliente
+
+**Backend (web-admin):**
+- [x] `lib/payments.ts::runCapture/runRefund` — capture e refund viraram funções reutilizáveis (antes só a rota admin tinha a lógica)
+- [x] `POST /api/orders/[id]/confirm` — confirmação do cliente (idToken), mesma captura do admin
+- [x] `POST /api/disputes` — cliente abre disputa (idToken); grava a disputa, marca `order.status="disputed"` e `payment.status="disputa_aberta"` (payments só aceita escrita do backend)
+- [x] `POST /api/disputes/[id]/resolve` (admin) — reembolso total, parcial (refund + split proporcional pro que sobrou), ou libera pagamento (reusa `runCapture`)
+- [x] `GET /api/cron/auto-confirm` — captura sozinho pedidos com `confirm_deadline_at` vencido e cliente que nunca respondeu
+- [x] A05 (Disputas) — real: lista + filtro por status, painel de decisão, chama `/resolve`
+- [x] Regra nova em `firestore.rules`: cliente pode marcar `applications/{cleanerId}.status` como `selected`/`declined`, só no seu próprio pedido — testada com o SDK cliente (não só Admin SDK) pra garantir que a regra em si funciona, inclusive negando outra faxineira mexer numa candidatura alheia
+
+**Checkpoint:** ✅ Testado ponta a ponta contra o emulador com o **client SDK autenticado** (não só Admin SDK, que ignora regras) pra validar a regra nova de verdade: cliente escolhe candidata → regra aceita, outsider tentando alterar candidatura alheia → regra nega → ciclo completo (chegada → concluído → cliente confirma → captura) → auto-confirmação via cron quando cliente não responde → disputa aberta → faxineira responde → admin resolve parcial (split proporcional ao valor liberado, bate com a fórmula do Bloco 7).
+
+**Bug real pego pelo teste:** o primeiro rascunho de C19 escrevia `updated_at: new Date()` no pedido — a regra do Firestore exige `updated_at == request.time` (só `serverTimestamp()` bate com isso), então a escolha de faxineira falhava sempre. Corrigido antes de existir em produção porque o teste usou o SDK cliente de verdade, não Admin SDK.
+
+**Deixado para depois:**
+- Score/rating agregado (média de estrelas por faxineira/cliente) não é recalculado automaticamente — reviews são só gravadas, sem trigger de agregação (precisaria de Cloud Function, fora do Plan B)
+- Janela de 72h escondendo avaliação até as duas partes avaliarem (SCREEN-MAP.md) não foi implementada — `visible: true` sempre
+- "Estou terminando agora" (F12) grava `service_finishing_soon_at` no pedido mas não dispara nada (sem infra de notificação ainda)
 
 ---
 
 ### BLOCO 8 — NOTIFICAÇÕES
-**Status:** ⏳ Pendente
+**Status:** ✅ Completo (2026-08-29)
 
-- [ ] **8.1** FCM — estrutura pronta, teste local via Expo (push real precisa de conta Firebase real, testar quando conectar)
+- [x] **8.1** FCM setup — Server API Key, Sender ID copiados
+- [x] **8.2** Mobile notificações — hook `useNotifications` registra dispositivo, guarda token no Firestore
+- [x] **8.3** Backend endpoint — `POST /api/notifications/send` dispara via Expo Push API
+- [x] **8.4** Firestore Rules — permite usuários guardar `fcm_token`
 
-**Checkpoint:** Lógica de disparo pronta.
+**Checkpoint:** ✅ Código pronto. Teste ponta a ponta pendente (mobile-only, Bloco 9.5).
+
+**Notas técnicas:**
+- Hook `useNotifications.ts` — registra ao abrir app, salva em `users/{uid}.fcm_token`
+- Endpoint `/api/notifications/send` — recebe userId+título+body, busca token, envia via Expo
+- Firestore Rules atualizada — nova regra `allow update: if isOwnUser(userId) && (request.resource.data.fcm_token != null || request.resource.data.fcm_token_updated_at != null);`
+- Integração no app — `useNotifications()` chamado em `app/index.tsx`
+- expo-notifications instalado e type-checked (sem erros TS)
 
 ---
 
@@ -180,4 +245,6 @@ Em 2026-08-27 o Jehu passou o **Hand off to Claude Code** do Claude Design — a
 
 ## Próximo Passo
 
-Iniciar **BLOCO 7 — Pagamentos** (webhook Asaas mock, cron de pré-autorização D-1, split, Carteira/Saque da faxineira — F16/F17 que ficaram de fora do Bloco 5). É onde "Financeiro" e "Preços por Cidade" do admin ganham sentido de verdade também, se sobrar tempo.
+Iniciar **BLOCO 8 — Notificações** (FCM). Depois disso, Bloco 9 (contas reais) e Bloco 10 (QA + Deploy).
+
+Com o Bloco 4.5 completo, o ciclo do pedido agora fecha de ponta a ponta pelo próprio app (sem precisar de script pra seedar estado) — é o que falta pra FCM fazer sentido: chegada, conclusão, confirmação e disputa são exatamente os pontos que precisam de notificação push.
