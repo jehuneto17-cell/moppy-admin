@@ -1,36 +1,37 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Moppy Admin — Painel Admin
 
-## Getting Started
+Painel administrativo (Next.js) do Moppy — marketplace de faxina. Repositório irmão: [`moppy-mobile`](https://github.com/jehuneto17-cell/moppy-mobile), mesmo projeto Firebase.
 
-First, run the development server:
+## Estrutura
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+```
+app/                # Rotas e páginas (App Router)
+lib/                # Firebase Admin, Asaas, split de pagamento
+shared/              # Tipos e utils compartilhados (cópia local, também existe em moppy-mobile)
+docs/fabrica/        # Documentação completa do projeto (specs, arquitetura, estado, etc)
+firebase.json        # Config do projeto Firebase (regras, emulators) — fonte única
+firestore.rules
+firestore.indexes.json
+storage.rules
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Este repo é o "dono" da configuração do Firebase (regras, índices, emulators) — as duas apps (mobile e admin) apontam pro mesmo projeto Firebase, mas o deploy de regras/índices só acontece a partir daqui.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Rodando local
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm install
+npm run emulators   # Firebase emulators (Auth + Firestore + Storage)
+npm run dev          # Next.js dev server
+```
 
-## Learn More
+Precisa de `.env.local` (não commitado) com as chaves do Firebase — ver `.env.example`.
 
-To learn more about Next.js, take a look at the following resources:
+## Deploy
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- **App:** Vercel (produção)
+- **Regras/índices do Firestore:** `firebase deploy --only firestore:rules,firestore:indexes,storage` a partir deste repo
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Status
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Ver `docs/fabrica/ESTADO.md`.
