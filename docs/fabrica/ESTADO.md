@@ -16,7 +16,7 @@
 | 5. UX & User Flows | ✅ Completo (redesenhado) | fab-ux | 2026-08-23 |
 | 6. Design System | ✅ Aprovado (Gate 5 — UI-SPEC) | fab-ui + Jehu | 2026-08-24 |
 | 7. Arquitetura Técnica | ✅ Completo | fab-arquiteto | 2026-08-23 |
-| 8. Implementação | 🟡 Em andamento — Asaas real implementado, falta bateria de testes | Jehu | — |
+| 8. Implementação | 🟡 Em andamento — Asaas real implementado e testado (bateria de sandbox rodada), falta EAS Build de produção + fluxo completo do pedido pela UI | Jehu | — |
 | 9. QA & Testes | ⏳ Aguardando | fab-qa | — |
 | 10. Segurança | ⏳ Aguardando | fab-seguranca | — |
 
@@ -186,4 +186,41 @@ Implementado e testado ao vivo contra o sandbox (não só compilado):
 - **Cenário 12 considerado resolvido** para efeito de bloqueio do Gate — fórmula corrigida com amostra real. Se quiser mais confiança antes de produção, rodar de novo com valores maiores/cartões diferentes.
 
 **Gap de ambiente pra testar pela UI — RESOLVIDO em 2026-09-05:** o `moppy-mobile/.env.local` já está com `EXPO_PUBLIC_FIREBASE_PROJECT_ID=moppy-4ae68` e `EXPO_PUBLIC_USE_FIREBASE_EMULATOR=false` — confirmado em `src/services/firebase.ts:21-23` que só conecta no emulador se essa flag for `"true"`. Ou seja, o mobile já fala com o mesmo projeto real que o admin (`moppy-4ae68`), sem emulador. Falta apenas rodar o app (dev build/EAS, já que Google Auth é mobile-only) e confirmar login + chamada autenticada ponta a ponta pela UI.
+
+**2026-09-05 — Primeiro EAS Build (dev client) gerado e testado num emulador real:**
+- Build local via Gradle **falhou** — causa raiz: o caminho da pasta do projeto (`App de serviços`) tem "ç", e o compilador nativo (Clang/NDK) não lida com paths não-ASCII no Windows. Não é bug do código; contornado usando **EAS Cloud Build** (`eas build --platform android --profile development`), que roda em servidor Linux e não sofre desse problema.
+- APK instalado no emulador (`moppy_dev`, AVD sem Google Play — por isso notificações push falham nele, esperado, não é bug).
+- **Testado pela UI de verdade:** cadastro de cliente (Firebase Auth), onboarding de endereço com geocoding **Mapbox real** (mapa renderizou com pin correto — valida também o token de download do Mapbox em build nativo, pendência antiga), e tokenização de cartão real contra o Asaas sandbox (`POST /api/cards/tokenize` → 200 com o cartão aprovado `5162306219378829`).
+- **Bug real encontrado e corrigido:** `ASAAS_API_KEY` no `.env.local` do admin começa com `$aact_...`. O parser de env do Next.js (`@next/env`, que faz expansão de variável `$VAR`) interpretava isso como referência a uma variável inexistente, **zerando a chave silenciosamente** — toda chamada ao Asaas vinha voltando 401 sem nenhum log explicando por quê. Corrigido escapando pra `\$aact_...`. **Atenção:** esse escape é necessário pro Next.js mas quebra leitura via `node --env-file` (que não expande `$`, então mantém a barra invertida como parte do valor) — scripts standalone (`tsx`) precisam remover o `\` inicial em runtime se usarem essa chave.
+- Não foi possível completar o ciclo do pedido pela UI (criar pedido → faxineira candidatar → confirmar) nessa sessão — precisa de uma segunda conta (faxineira) e trava num loading do listener do Firestore não investigado a fundo (não parece bug de pagamento, mais provável rede do emulador).
+
+**2026-09-05 — Bateria dos 12 cenários de sandbox (PAYMENT-IMPLEMENTATION.md §5.2) rodada contra o Asaas real:**
+- Script standalone (`tsx` + `lib/payments.ts` direto, pedidos seedados no Firestore de produção) rodou os cenários 1, 2, 4, 5, 6, 7, 8, 11 contra o sandbox real (não mock).
+- **Passaram de verdade:** 1 (fim a fim), 4 (webhook duplicado), 5 (cron 2x sem duplicar cobrança), 6 (cancelamento ≥12h, estorno total), 7 (cancelamento <12h, compensação 30%), 8 (disputa parcial + guarda contra estorno duplicado testada na prática), 11 (chargeback congela saldo, `release-balance` confirmado que pula registros congelados).
+- **Achado no cenário 2 (cartão recusado):** o número documentado (`4000000000000010`) **hoje é aprovado** no sandbox do Asaas — a lista de cartões de teste mudou (o doc já alertava sobre isso desde antes). Precisa achar no painel do Asaas o número atual que recusa antes de considerar esse cenário validado.
+- **Não testados:** 3 (troca de cartão <6h), 9 (auto-confirmação 24h), 10 (confirmado <24h) — a lógica de "quando" disparar fica nos endpoints de cron/confirmação, não nas funções de `lib/payments.ts` testadas; exigiria simular passagem real de tempo.
+- Detalhe completo por cenário em `PAYMENT-EDGE-CASES.md` (seção "Bateria dos 12 cenários rodada de verdade").
+
+**2026-09-05 — Autofill de cartão salvo no Google (moppy-mobile):**
+- Jehu notou que outros apps sugerem os cartões salvos na conta Google do usuário ao cadastrar cartão. Isso é o Autofill nativo do Android, não Google Pay (que exigiria integração separada e suporte do Asaas a token do Google Pay) — só precisa marcar os campos certos.
+- Adicionado `autoComplete`/`textContentType` nos campos de cartão em `app/(client-onboarding)/cartao.tsx` e `app/(client)/criar-pedido/novo-cartao.tsx`: número (`cc-number`), mês/ano (`cc-exp-month`/`cc-exp-year`), CVV (`cc-csc`, com `textContentType="none"` pra não guardar o CVV no autofill), nome do titular (`cc-name`), telefone (`tel`).
+- `npx tsc --noEmit` sem novos erros (só os 3 pré-existentes de typed routes, não relacionados).
+- **Tentativa de teste no emulador `moppy_dev` — abandonada por instabilidade da máquina, não do código:** o AVD na verdade *tem* Google Play Services + Play Store + conta Google logada (`jehuneto17@gmail.com`) com o serviço de Autofill ativo, então em tese daria pra validar. Mas mesmo com o emulador **reiniciado do zero**, o sistema apresentou "System UI isn't responding" e `dumpsys` travando (timeout) — sinal de que a máquina não tem recurso suficiente pra rodar esse emulador com Play Services de forma estável. Jehu decidiu não insistir agora.
+- **Pendente:** validar o autofill instalando o APK (`eas build --profile development`, já gerado nesta sessão) num **Android físico real** — muito mais confiável que o emulador nessa máquina, e o usuário já tem cartões reais salvos na conta Google pra testar de verdade.
+
+**2026-09-05 — moppy-admin no ar na Vercel (produção): `https://moppy-admin.vercel.app`**
+
+Pedido do Jehu: subir o admin na Vercel pra testar e, em paralelo, preparar o mobile pro Play Store. Rodou o primeiro deploy real de produção e bateu em 3 bugs reais, nenhum deles conhecido antes (o admin nunca tinha sido deployado de verdade):
+
+1. **Cron do plano grátis:** o `vercel.json` tinha crons de hora em hora / 2h, mas o plano Hobby (grátis) da Vercel só permite cron 1x/dia — deploy falhava direto. **Solução:** tirou os crons do `vercel.json` (agora `{}`) e criou `.github/workflows/crons.yml`, que chama os 4 endpoints (`charge`+`auto-confirm` de hora em hora, `reconcile` a cada 2h, `release-balance` 1x/dia) via `curl` com o header `Authorization: Bearer ${{ secrets.CRON_SECRET }}`. **Pendente do Jehu:** cadastrar 2 secrets no GitHub do repo (`Settings → Secrets and variables → Actions`): `SITE_URL` = `https://moppy-admin.vercel.app` e `CRON_SECRET` = o mesmo valor do `.env.local` (trocar por um valor forte antes de produção real — hoje é só `dev_cron_secret`).
+
+2. **Bug real de infra — `firebase-admin` quebrava 100% das rotas em produção (login e todos os crons voltavam 500), mas funcionava perfeito em `next dev`/`next start` local.** Causa raiz, achada testando ao vivo (não só lendo doc): `jwks-rsa` (dependência interna do `firebase-admin`) faz `require('jose')`, e a partir do `jose` v6 esse pacote é **ESM puro, sem build CommonJS**. Localmente mascarava o problema porque o Node 24 (instalado aqui) suporta nativamente `require()` de ESM; o runtime da Vercel não suporta (erro `ERR_REQUIRE_ESM`). Também descoberto de passagem: o Next.js 16 usa Turbopack por padrão até pro `next build`, e o `serverExternalPackages` não resolveu (o bundle continuava idêntico, mesmo hash). **Correção que funcionou de verdade:** `"overrides": { "jose": "^5.10.0" }` no `package.json` (a v5 do jose ainda publica build CommonJS; só a v6 dropou) + `"build": "next build --webpack"` (saiu do Turbopack) + `"engines": { "node": "22.x" }`. Confirmado com `curl` direto na URL de produção depois de cada tentativa — 3 deploys até achar a combinação certa.
+
+3. **Índices do Firestore nunca tinham sido publicados de verdade pro projeto real** (`firestore.indexes.json` existia no repo, mas alguém só editava o arquivo sem rodar o deploy) — o cron `/api/cron/charge` quebrava com `FAILED_PRECONDITION: The query requires an index`. Corrigido com `firebase deploy --only firestore:indexes --project moppy-4ae68`. Índice leva alguns minutos pra ficar pronto depois do deploy (Firestore constrói em background).
+
+**Confirmado funcionando ao vivo:** `GET /login` → 200, `GET /api/cron/charge` sem auth → 401 (correto), com `Authorization: Bearer dev_cron_secret` → aguardando o índice terminar de construir pra confirmar 100%.
+
+**Variáveis de ambiente subidas pra Vercel (produção)**, com autorização explícita do Jehu: todas as `NEXT_PUBLIC_FIREBASE_*`, `FIREBASE_SERVICE_ACCOUNT`, `ASAAS_*`, `CLOUDINARY_*`, `MAPBOX_TOKEN`, `GCLOUD_PROJECT`. `NEXT_PUBLIC_FIREBASE_API_KEY` precisou do flag `--type config` (Vercel exige confirmação explícita pra variável `NEXT_PUBLIC_` que "parece" credencial — é intencional, a Web API Key do Firebase é pública por design, a segurança real está nas regras do Firestore).
+
+**Ainda não commitado no git** (só local): `next.config.ts` (serverExternalPackages, acabou não sendo a correção que funcionou, mas não faz mal manter), `package.json` (overrides do jose, build --webpack, engines), `vercel.json` (crons removidos), `.github/workflows/crons.yml` (novo). **Precisa commitar e dar push** pra isso não se perder e pra próximo deploy via Git ficar consistente com o que está rodando agora (que foi deployado direto do CLI, bypassando o git).
 

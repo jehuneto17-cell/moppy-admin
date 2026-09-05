@@ -36,6 +36,27 @@
 > | **23. Estorno duplicado (NOVO)** | 🆕 Admin clica 2× em "reembolso total". `runRefund` hoje **não tem guarda** — correção obrigatória |
 > | **24. Pedido confirmado com <24h (NOVO)** | 🆕 O cron D-1 nunca o alcança. Cobrança tem que sair na confirmação |
 
+> ### 2026-09-05 — Bateria dos 12 cenários (PAYMENT-IMPLEMENTATION.md §5.2) rodada de verdade
+>
+> Rodada contra o sandbox real do Asaas (não mock), chamando `lib/payments.ts` direto contra pedidos seedados no Firestore de produção.
+>
+> | # | Cenário | Resultado |
+> |---|---|---|
+> | 1 | Fim a fim feliz | ✅ Passou — cobrança real, confirmação, split, carteira creditada |
+> | 2 | Cartão recusado | ⚠️ **Achado**: `4000000000000010` (cartão "recusado" desta tabela e de `PAYMENT-IMPLEMENTATION.md` §5.1) hoje é **aprovado** no sandbox. A lista de cartões de teste do Asaas mudou — precisa achar o número atual que recusa antes de considerar esse cenário validado |
+> | 3 | Troca de cartão <6h | ⏳ Não testado — depende de simular passagem real de tempo (`next_retry_at`), não só da função de cobrança |
+> | 4 | Webhook duplicado | ✅ Passou — `isEventProcessed` detecta a duplicidade |
+> | 5 | Cron rodando 2x | ✅ Passou — 2ª chamada não gera cobrança nova (`outcome: skipped`) |
+> | 6 | Cancelamento ≥12h | ✅ Passou — estorno total |
+> | 7 | Cancelamento <12h | ✅ Passou — compensação de 30% pra faxineira, estorno do resto |
+> | 8 | Disputa parcial | ✅ Passou — split do resto credita a faxineira, e a guarda contra estorno duplicado bloqueou a 2ª tentativa de verdade |
+> | 9 | Auto-confirmação 24h | ⏳ Não testado — a decisão de "quando" fica no cron `auto-confirm`, não em `settleOrder` |
+> | 10 | Confirmado <24h | ⏳ Não testado — idem, decisão fica no endpoint de confirmação, não em `chargeOrder` |
+> | 11 | Chargeback | ✅ Passou — `balance_frozen` gravado, `release-balance` confirmado (por leitura do código) que pula registros congelados |
+> | 12 | Taxa real | ✅ Já resolvido em 2026-09-05 (ver ESTADO.md) |
+>
+> **Pendência:** achar no painel do sandbox do Asaas o número de cartão que realmente recusa hoje, pra validar o cenário 2 (recusa) e, por consequência, o 3 (troca de cartão).
+
 ---
 
 

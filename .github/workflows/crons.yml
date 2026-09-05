@@ -1,0 +1,35 @@
+name: Crons (Asaas / pedidos)
+
+on:
+  schedule:
+    # charge e auto-confirm: de hora em hora
+    - cron: "0 * * * *"
+    # reconcile: a cada 2h
+    - cron: "0 */2 * * *"
+    # release-balance: 1x por dia, 03:00 UTC
+    - cron: "0 3 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  hourly:
+    if: github.event.schedule == '0 * * * *' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: charge
+        run: curl -sf -X GET "${{ secrets.SITE_URL }}/api/cron/charge" -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
+      - name: auto-confirm
+        run: curl -sf -X GET "${{ secrets.SITE_URL }}/api/cron/auto-confirm" -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
+
+  every-2h:
+    if: github.event.schedule == '0 */2 * * *'
+    runs-on: ubuntu-latest
+    steps:
+      - name: reconcile
+        run: curl -sf -X GET "${{ secrets.SITE_URL }}/api/cron/reconcile" -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
+
+  daily:
+    if: github.event.schedule == '0 3 * * *'
+    runs-on: ubuntu-latest
+    steps:
+      - name: release-balance
+        run: curl -sf -X GET "${{ secrets.SITE_URL }}/api/cron/release-balance" -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
