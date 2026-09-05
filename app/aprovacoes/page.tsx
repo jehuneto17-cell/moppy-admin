@@ -1,9 +1,11 @@
 "use client";
 
 import { collection, doc, onSnapshot, query, serverTimestamp, updateDoc, where } from "firebase/firestore";
+import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useState } from "react";
 
 import { AdminShell } from "@/components/AdminShell";
+import { useStore } from "@/contexts/StoreContext";
 import { db } from "@/lib/firebase";
 
 type PendingCleaner = {
@@ -31,6 +33,7 @@ export default function AprovacoesPage() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [reason, setReason] = useState("");
   const [confirming, setConfirming] = useState<"approve" | "reject" | null>(null);
+  const { showToast } = useStore();
 
   useEffect(() => {
     const q = query(collection(db, "cleaners"), where("approval_status", "==", "pending"));
@@ -48,6 +51,7 @@ export default function AprovacoesPage() {
         rejection_date: serverTimestamp(),
         updated_at: serverTimestamp(),
       });
+      showToast(`${active.email} reprovado`, "error");
     } else {
       await updateDoc(doc(db, "cleaners", active.id), {
         approval_status: "approved",
@@ -55,6 +59,7 @@ export default function AprovacoesPage() {
         is_active: true,
         updated_at: serverTimestamp(),
       });
+      showToast(`${active.email} aprovado`, "success");
     }
     setConfirming(null);
     setActiveId(null);
@@ -63,15 +68,15 @@ export default function AprovacoesPage() {
 
   return (
     <AdminShell>
-      <h1 style={{ fontSize: 28, fontWeight: 700, color: "#1F2937", margin: "0 0 24px 0" }}>Aprovações pendentes</h1>
+      <h1 className="mb-6 text-[28px] font-bold text-ink">Aprovações pendentes</h1>
 
-      {rows === null && <p style={{ color: "#9CA3AF", fontSize: 14 }}>Carregando...</p>}
-      {rows?.length === 0 && <p style={{ color: "#6B7280", fontSize: 14, marginTop: 80, textAlign: "center" }}>Nenhum item nesta fila agora.</p>}
+      {rows === null && <p className="text-sm text-faint">Carregando...</p>}
+      {rows?.length === 0 && <p className="mt-20 text-center text-sm text-muted">Nenhum item nesta fila agora.</p>}
 
       {rows && rows.length > 0 && (
-        <div style={{ display: "flex", gap: 16 }}>
-          <div style={{ flex: 1, background: "#fff", borderRadius: 8, boxShadow: "0 1px 3px rgba(0,0,0,0.1)", overflow: "hidden" }}>
-            <div style={{ display: "grid", gridTemplateColumns: "56px 2fr 1.5fr 1.5fr 100px", padding: "12px 16px", borderBottom: "1px solid #E5E7EB", background: "#F9FAFB" }}>
+        <div className="flex gap-4">
+          <div className="flex-1 overflow-hidden rounded-lg bg-white shadow-sm">
+            <div className="grid grid-cols-[56px_2fr_1.5fr_1.5fr_100px] border-b border-border bg-surface px-4 py-3">
               <span />
               <HeaderCell>E-mail</HeaderCell>
               <HeaderCell>CPF</HeaderCell>
@@ -84,19 +89,19 @@ export default function AprovacoesPage() {
               return (
                 <div
                   key={row.id}
-                  style={{ display: "grid", gridTemplateColumns: "56px 2fr 1.5fr 1.5fr 100px", padding: "12px 16px", alignItems: "center", borderBottom: "1px solid #F3F4F6", background: isActive ? "#F3E8FF" : "#fff" }}
+                  className={`grid grid-cols-[56px_2fr_1.5fr_1.5fr_100px] items-center border-b border-gray-100 px-4 py-3 transition-colors ${isActive ? "bg-brand-tint" : "bg-white hover:bg-surface"}`}
                 >
-                  <div style={{ width: 32, height: 32, borderRadius: 9999, background: "#EDE9FE", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: "#A78BFA" }}>{initials}</div>
-                  <span style={{ fontSize: 12, color: "#1F2937" }}>{row.email}</span>
-                  <span style={{ fontSize: 12, color: "#6B7280" }}>{row.documents?.cpf_document?.cpf_number ?? "—"}</span>
-                  <span style={{ fontSize: 12, color: "#6B7280" }}>{formatDate(row.created_at)}</span>
+                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-brand-tint-strong text-xs font-bold text-brand">{initials}</div>
+                  <span className="text-xs text-ink">{row.email}</span>
+                  <span className="text-xs text-muted">{row.documents?.cpf_document?.cpf_number ?? "—"}</span>
+                  <span className="text-xs text-muted">{formatDate(row.created_at)}</span>
                   <button
                     onClick={() => {
                       setActiveId(row.id);
                       setConfirming(null);
                       setReason("");
                     }}
-                    style={{ height: 28, padding: "0 12px", borderRadius: 6, border: "1px solid #A78BFA", background: isActive ? "#A78BFA" : "#fff", color: isActive ? "#fff" : "#A78BFA", fontSize: 12, fontWeight: 500, cursor: "pointer" }}
+                    className={`h-7 rounded-md border border-brand px-3 text-xs font-medium transition-colors ${isActive ? "bg-brand text-white" : "bg-white text-brand hover:bg-brand-tint"}`}
                   >
                     Revisar
                   </button>
@@ -105,67 +110,80 @@ export default function AprovacoesPage() {
             })}
           </div>
 
-          {active && (
-            <div style={{ width: 380, background: "#fff", borderRadius: 8, boxShadow: "0 1px 3px rgba(0,0,0,0.1)", padding: 24, alignSelf: "flex-start" }}>
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <div>
-                  <h2 style={{ fontSize: 20, fontWeight: 700, color: "#1F2937", margin: 0 }}>{active.email}</h2>
-                  <p style={{ fontSize: 12, color: "#9CA3AF", margin: "4px 0 0 0" }}>CPF {active.documents?.cpf_document?.cpf_number ?? "—"}</p>
+          <AnimatePresence>
+            {active && (
+              <motion.div
+                initial={{ opacity: 0, x: 16 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 16 }}
+                transition={{ duration: 0.15 }}
+                className="w-[380px] self-start rounded-lg bg-white p-6 shadow-sm"
+              >
+                <div className="flex justify-between">
+                  <div>
+                    <h2 className="text-xl font-bold text-ink">{active.email}</h2>
+                    <p className="mt-1 text-xs text-faint">CPF {active.documents?.cpf_document?.cpf_number ?? "—"}</p>
+                  </div>
+                  <button onClick={() => setActiveId(null)} className="text-faint hover:text-ink">
+                    ✕
+                  </button>
                 </div>
-                <button onClick={() => setActiveId(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "#9CA3AF" }}>
-                  ✕
-                </button>
-              </div>
 
-              <p style={{ fontSize: 12, fontWeight: 500, color: "#6B7280", margin: "20px 0 8px 0", textTransform: "uppercase" }}>Documentos</p>
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                {Object.entries(DOC_LABELS).map(([key, label]) => {
-                  const doc = active.documents?.[key];
-                  return (
-                    <div key={key} style={{ border: "1px solid #E5E7EB", borderRadius: 8, padding: "10px 12px", display: "flex", justifyContent: "space-between" }}>
-                      <span style={{ fontSize: 14, color: "#1F2937" }}>{label}</span>
-                      <span style={{ fontSize: 12, color: doc ? "#10B981" : "#EF4444" }}>{doc ? "Enviado" : "Faltando"}</span>
-                    </div>
-                  );
-                })}
-              </div>
+                <p className="mt-5 mb-2 text-xs font-medium tracking-wide text-muted uppercase">Documentos</p>
+                <div className="flex flex-col gap-1.5">
+                  {Object.entries(DOC_LABELS).map(([key, label]) => {
+                    const docEntry = active.documents?.[key];
+                    return (
+                      <div key={key} className="flex justify-between rounded-lg border border-border px-3 py-2.5">
+                        <span className="text-sm text-ink">{label}</span>
+                        <span className={`text-xs ${docEntry ? "text-success" : "text-danger"}`}>{docEntry ? "Enviado" : "Faltando"}</span>
+                      </div>
+                    );
+                  })}
+                </div>
 
-              <p style={{ fontSize: 12, fontWeight: 500, color: "#6B7280", margin: "20px 0 8px 0", textTransform: "uppercase" }}>Decisão</p>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button
-                  onClick={() => setConfirming("approve")}
-                  style={{ flex: 1, padding: 12, borderRadius: 8, border: `2px solid ${confirming === "approve" ? "#10B981" : "#E5E7EB"}`, background: confirming === "approve" ? "#D1FAE5" : "#fff", color: confirming === "approve" ? "#065F46" : "#6B7280", fontSize: 14, fontWeight: 700, cursor: "pointer" }}
-                >
-                  Aprovar
-                </button>
-                <button
-                  onClick={() => setConfirming("reject")}
-                  style={{ flex: 1, padding: 12, borderRadius: 8, border: `2px solid ${confirming === "reject" ? "#EF4444" : "#E5E7EB"}`, background: confirming === "reject" ? "#FEE2E2" : "#fff", color: confirming === "reject" ? "#991B1B" : "#6B7280", fontSize: 14, fontWeight: 700, cursor: "pointer" }}
-                >
-                  Reprovar
-                </button>
-              </div>
+                <p className="mt-5 mb-2 text-xs font-medium tracking-wide text-muted uppercase">Decisão</p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setConfirming("approve")}
+                    className={`flex-1 rounded-lg border-2 p-3 text-sm font-bold transition-colors ${confirming === "approve" ? "border-success bg-success-bg text-success-dark" : "border-border bg-white text-muted"}`}
+                  >
+                    Aprovar
+                  </button>
+                  <button
+                    onClick={() => setConfirming("reject")}
+                    className={`flex-1 rounded-lg border-2 p-3 text-sm font-bold transition-colors ${confirming === "reject" ? "border-danger bg-danger-bg text-danger-dark" : "border-border bg-white text-muted"}`}
+                  >
+                    Reprovar
+                  </button>
+                </div>
 
-              {confirming === "reject" && (
-                <textarea
-                  value={reason}
-                  onChange={(e) => setReason(e.target.value)}
-                  placeholder="Descreva o motivo para a faxineira poder corrigir"
-                  style={{ width: "100%", height: 80, marginTop: 16, padding: 10, border: "1px solid #E5E7EB", borderRadius: 6, fontFamily: "inherit", fontSize: 14, color: "#1F2937", boxSizing: "border-box", resize: "none" }}
-                />
-              )}
+                <AnimatePresence>
+                  {confirming === "reject" && (
+                    <motion.textarea
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 80 }}
+                      exit={{ opacity: 0, height: 0 }}
+                      value={reason}
+                      onChange={(e) => setReason(e.target.value)}
+                      placeholder="Descreva o motivo para a faxineira poder corrigir"
+                      className="mt-4 w-full resize-none rounded-md border border-border p-2.5 font-sans text-sm text-ink"
+                    />
+                  )}
+                </AnimatePresence>
 
-              {confirming && (
-                <button
-                  onClick={() => handleDecide(confirming)}
-                  disabled={confirming === "reject" && reason.trim().length < 5}
-                  style={{ width: "100%", height: 44, marginTop: 16, borderRadius: 8, border: "none", background: "#A78BFA", color: "#fff", fontSize: 14, fontWeight: 500, cursor: "pointer" }}
-                >
-                  Salvar decisão
-                </button>
-              )}
-            </div>
-          )}
+                {confirming && (
+                  <button
+                    onClick={() => handleDecide(confirming)}
+                    disabled={confirming === "reject" && reason.trim().length < 5}
+                    className="mt-4 h-11 w-full rounded-lg bg-brand text-sm font-medium text-white transition-colors hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Salvar decisão
+                  </button>
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       )}
     </AdminShell>
@@ -173,5 +191,5 @@ export default function AprovacoesPage() {
 }
 
 function HeaderCell({ children }: { children: React.ReactNode }) {
-  return <span style={{ fontSize: 14, fontWeight: 500, color: "#6B7280" }}>{children}</span>;
+  return <span className="text-sm font-medium text-muted">{children}</span>;
 }

@@ -1,9 +1,11 @@
 "use client";
 
 import { collection, doc, onSnapshot, serverTimestamp, updateDoc } from "firebase/firestore";
+import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useMemo, useState } from "react";
 
 import { AdminShell } from "@/components/AdminShell";
+import { useStore } from "@/contexts/StoreContext";
 import { db } from "@/lib/firebase";
 
 type UserRow = {
@@ -28,6 +30,7 @@ export default function UsuariosPage() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [suspending, setSuspending] = useState(false);
   const [reason, setReason] = useState("");
+  const { showToast } = useStore();
 
   useEffect(() => {
     return onSnapshot(collection(db, "users"), (snap) => setUsers(snap.docs.map((d) => ({ id: d.id, ...d.data() } as UserRow))));
@@ -45,30 +48,31 @@ export default function UsuariosPage() {
   async function handleSuspend() {
     if (!active) return;
     await updateDoc(doc(db, "users", active.id), { is_suspended: true, suspension_reason: reason, updated_at: serverTimestamp() });
+    showToast(`${active.name || active.email} suspenso`, "error");
     setSuspending(false);
     setReason("");
   }
 
   return (
     <AdminShell>
-      <h1 style={{ fontSize: 28, fontWeight: 700, color: "#1F2937", margin: "0 0 20px 0" }}>Usuários</h1>
+      <h1 className="mb-5 text-[28px] font-bold text-ink">Usuários</h1>
 
       <input
         value={search}
         onChange={(e) => setSearch(e.target.value)}
         placeholder="Buscar por Nome, Email ou Telefone"
-        style={{ width: "100%", maxWidth: 480, height: 42, padding: "0 14px", border: "1px solid #E5E7EB", borderRadius: 6, fontSize: 14, marginBottom: 20, boxSizing: "border-box" }}
+        className="mb-5 h-[42px] w-full max-w-[480px] rounded-md border border-border px-3.5 text-sm focus:outline-2 focus:outline-brand focus:outline-offset-2"
       />
 
-      {users === null && <p style={{ color: "#9CA3AF", fontSize: 14 }}>Carregando...</p>}
-      {users !== null && filtered.length === 0 && <p style={{ color: "#6B7280", fontSize: 14, marginTop: 60, textAlign: "center" }}>Nenhum usuário encontrado.</p>}
+      {users === null && <p className="text-sm text-faint">Carregando...</p>}
+      {users !== null && filtered.length === 0 && <p className="mt-16 text-center text-sm text-muted">Nenhum usuário encontrado.</p>}
 
       {filtered.length > 0 && (
-        <div style={{ display: "flex", gap: 16 }}>
-          <div style={{ flex: 1, background: "#fff", borderRadius: 8, boxShadow: "0 1px 3px rgba(0,0,0,0.1)", overflow: "hidden" }}>
-            <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1.8fr 1fr 1fr", padding: "0 16px", borderBottom: "1px solid #E5E7EB", background: "#F9FAFB" }}>
+        <div className="flex gap-4">
+          <div className="flex-1 overflow-hidden rounded-lg bg-white shadow-sm">
+            <div className="grid grid-cols-[1.6fr_1.8fr_1fr_1fr] border-b border-border bg-surface px-4">
               {["Nome", "Email", "Status", "Cadastro"].map((h) => (
-                <span key={h} style={{ fontSize: 14, fontWeight: 500, color: "#6B7280", height: 40, display: "flex", alignItems: "center" }}>
+                <span key={h} className="flex h-10 items-center text-sm font-medium text-muted">
                   {h}
                 </span>
               ))}
@@ -83,67 +87,75 @@ export default function UsuariosPage() {
                     setActiveId(u.id);
                     setSuspending(false);
                   }}
-                  style={{ display: "grid", gridTemplateColumns: "1.6fr 1.8fr 1fr 1fr", padding: "0 16px", alignItems: "center", minHeight: 44, borderBottom: "1px solid #F3F4F6", background: isActive ? "#F3E8FF" : i % 2 ? "#F9FAFB" : "#fff", cursor: "pointer" }}
+                  className={`grid min-h-[44px] cursor-pointer grid-cols-[1.6fr_1.8fr_1fr_1fr] items-center border-b border-gray-100 px-4 transition-colors ${isActive ? "bg-brand-tint" : i % 2 ? "bg-surface hover:bg-gray-100" : "bg-white hover:bg-surface"}`}
                 >
-                  <span style={{ fontSize: 12, color: "#1F2937" }}>{u.name || "—"}</span>
-                  <span style={{ fontSize: 12, color: "#6B7280" }}>{u.email}</span>
-                  <span style={{ fontSize: 11, fontWeight: 500, color: suspended ? "#991B1B" : "#065F46", background: suspended ? "#FEE2E2" : "#D1FAE5", borderRadius: 999, padding: "3px 10px", width: "fit-content" }}>
+                  <span className="text-xs text-ink">{u.name || "—"}</span>
+                  <span className="text-xs text-muted">{u.email}</span>
+                  <span className={`w-fit rounded-full px-2.5 py-0.5 text-[11px] font-medium ${suspended ? "bg-danger-bg text-danger-dark" : "bg-success-bg text-success-dark"}`}>
                     {suspended ? "Suspenso" : "Ativo"}
                   </span>
-                  <span style={{ fontSize: 12, color: "#6B7280" }}>{formatDate(u.created_at)}</span>
+                  <span className="text-xs text-muted">{formatDate(u.created_at)}</span>
                 </div>
               );
             })}
           </div>
 
-          {active && (
-            <div style={{ width: 360, background: "#fff", borderRadius: 8, boxShadow: "0 1px 3px rgba(0,0,0,0.1)", padding: 24, alignSelf: "flex-start" }}>
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <div>
-                  <h2 style={{ fontSize: 20, fontWeight: 700, color: "#1F2937", margin: 0 }}>{active.name || active.email}</h2>
-                  <p style={{ fontSize: 12, color: "#9CA3AF", margin: "4px 0 0 0" }}>{(active.role ?? []).join(", ") || "sem papel"}</p>
-                </div>
-                <button onClick={() => setActiveId(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "#9CA3AF" }}>
-                  ✕
-                </button>
-              </div>
-
-              <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 8 }}>
-                <Row label="Email" value={active.email} />
-                <Row label="Telefone" value={active.phone || "—"} />
-                <Row label="Cadastro" value={formatDate(active.created_at)} />
-              </div>
-
-              {!active.is_suspended && !suspending && (
-                <button
-                  onClick={() => setSuspending(true)}
-                  style={{ width: "100%", height: 44, marginTop: 20, borderRadius: 8, border: "1px solid #EF4444", background: "#fff", color: "#EF4444", fontSize: 14, fontWeight: 700, cursor: "pointer" }}
-                >
-                  Suspender conta
-                </button>
-              )}
-              {active.is_suspended && (
-                <div style={{ marginTop: 20, textAlign: "center", padding: 12, borderRadius: 8, background: "#FEE2E2", color: "#991B1B", fontSize: 14 }}>Conta suspensa</div>
-              )}
-              {suspending && (
-                <div style={{ marginTop: 16 }}>
-                  <label style={{ fontSize: 12, fontWeight: 500, color: "#6B7280", display: "block", marginBottom: 6 }}>Motivo da suspensão</label>
-                  <textarea
-                    value={reason}
-                    onChange={(e) => setReason(e.target.value)}
-                    style={{ width: "100%", height: 80, padding: 10, border: "1px solid #E5E7EB", borderRadius: 6, fontFamily: "inherit", fontSize: 14, boxSizing: "border-box", resize: "none" }}
-                  />
-                  <button
-                    onClick={handleSuspend}
-                    disabled={reason.trim().length < 5}
-                    style={{ width: "100%", height: 40, marginTop: 12, borderRadius: 8, border: "none", background: reason.trim().length < 5 ? "#FCA5A5" : "#EF4444", color: "#fff", fontSize: 14, fontWeight: 700, cursor: reason.trim().length < 5 ? "not-allowed" : "pointer" }}
-                  >
-                    Confirmar suspensão
+          <AnimatePresence>
+            {active && (
+              <motion.div
+                initial={{ opacity: 0, x: 16 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 16 }}
+                transition={{ duration: 0.15 }}
+                className="w-[360px] self-start rounded-lg bg-white p-6 shadow-sm"
+              >
+                <div className="flex justify-between">
+                  <div>
+                    <h2 className="text-xl font-bold text-ink">{active.name || active.email}</h2>
+                    <p className="mt-1 text-xs text-faint">{(active.role ?? []).join(", ") || "sem papel"}</p>
+                  </div>
+                  <button onClick={() => setActiveId(null)} className="text-faint hover:text-ink">
+                    ✕
                   </button>
                 </div>
-              )}
-            </div>
-          )}
+
+                <div className="mt-4 flex flex-col gap-2">
+                  <Row label="Email" value={active.email} />
+                  <Row label="Telefone" value={active.phone || "—"} />
+                  <Row label="Cadastro" value={formatDate(active.created_at)} />
+                </div>
+
+                {!active.is_suspended && !suspending && (
+                  <button
+                    onClick={() => setSuspending(true)}
+                    className="mt-5 h-11 w-full rounded-lg border border-danger bg-white text-sm font-bold text-danger transition-colors hover:bg-danger-bg"
+                  >
+                    Suspender conta
+                  </button>
+                )}
+                {active.is_suspended && (
+                  <div className="mt-5 rounded-lg bg-danger-bg p-3 text-center text-sm text-danger-dark">Conta suspensa</div>
+                )}
+                {suspending && (
+                  <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} className="mt-4">
+                    <label className="mb-1.5 block text-xs font-medium text-muted">Motivo da suspensão</label>
+                    <textarea
+                      value={reason}
+                      onChange={(e) => setReason(e.target.value)}
+                      className="w-full resize-none rounded-md border border-border p-2.5 font-sans text-sm"
+                    />
+                    <button
+                      onClick={handleSuspend}
+                      disabled={reason.trim().length < 5}
+                      className="mt-3 h-10 w-full rounded-lg bg-danger text-sm font-bold text-white transition-colors disabled:cursor-not-allowed disabled:bg-red-300"
+                    >
+                      Confirmar suspensão
+                    </button>
+                  </motion.div>
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       )}
     </AdminShell>
@@ -152,9 +164,9 @@ export default function UsuariosPage() {
 
 function Row({ label, value }: { label: string; value: string }) {
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "100px 1fr" }}>
-      <span style={{ fontSize: 12, color: "#9CA3AF" }}>{label}</span>
-      <span style={{ fontSize: 13, fontWeight: 500, color: "#1F2937" }}>{value}</span>
+    <div className="grid grid-cols-[100px_1fr]">
+      <span className="text-xs text-faint">{label}</span>
+      <span className="text-[13px] font-medium text-ink">{value}</span>
     </div>
   );
 }

@@ -1,44 +1,53 @@
-// Mock do Asaas — mesma interface da API real (ver ARCHITECTURE.md fluxo A/B).
-// Troca para SDK real na Etapa 9 (Bloco 9.3), sem mudar quem chama essas funções.
-
+// Mock do Asaas — mesma interface do cliente real (lib/asaas.ts). Preauthorize e
+// capturePayment não existem mais: essa conta não pode reservar sem cobrar
+// (PAYMENT-PROFILE.md §0), então o mock também cobra na hora.
 function fakeId(prefix: string) {
   return `${prefix}_mock_${Math.random().toString(36).slice(2, 10)}`;
 }
 
-export async function tokenizeCard(card: {
-  number: string;
-  holderName: string;
-  expiryMonth: number;
-  expiryYear: number;
-  cvv: string;
-}) {
+export async function createCustomer(params: { name: string; cpfCnpj: string; email: string; mobilePhone?: string }) {
+  return { id: fakeId("cus") };
+}
+
+export async function tokenizeCard(params: { creditCard: { number: string } }) {
   return {
-    token: fakeId("card"),
-    lastFour: card.number.slice(-4),
-    brand: "visa",
+    creditCardToken: fakeId("card"),
+    creditCardNumber: params.creditCard.number.slice(-4),
+    creditCardBrand: "VISA",
   };
 }
 
-export async function createCustomer(customer: { name: string; cpf: string; email: string }) {
-  return { customerId: fakeId("cust") };
-}
-
-export async function preauthorize(params: { customerId: string; cardToken: string; amount: number }) {
-  // Token especial pra testar o caminho de falha/retry sem precisar de um Asaas real (ver PAYMENT-IMPLEMENTATION.md 5.2).
+// Token especial pra testar o caminho de falha/retry sem precisar de um cartão
+// recusado de verdade no sandbox (ver PAYMENT-IMPLEMENTATION.md §5.2).
+export async function createCharge(params: { customerId: string; cardToken: string; amount: number; orderId: string; description: string }) {
   if (params.cardToken === "card_mock_declined") {
-    return { preauthId: null, status: "preauth_failed" as const, error: "card_declined" };
+    const err = new Error("cartão recusado (mock)") as Error & { status: number; errors: unknown[] };
+    err.status = 400;
+    err.errors = [{ code: "invalid_creditCard", description: "cartão recusado (mock)" }];
+    throw err;
   }
-  return { preauthId: fakeId("preauth"), status: "preauth_success" as const, error: null as string | null };
+  return {
+    id: fakeId("pay"),
+    status: "CONFIRMED" as const,
+    value: params.amount,
+    netValue: params.amount - (0.49 + params.amount * 0.03),
+    externalReference: params.orderId,
+    dateCreated: new Date().toISOString().slice(0, 10),
+  };
 }
 
-export async function capturePayment(params: { preauthId: string; amount: number }) {
-  return { captureId: fakeId("capture"), status: "capture_success" as const };
+export async function getPayment(paymentId: string) {
+  return { id: paymentId, status: "CONFIRMED" as const, value: 0, netValue: 0, externalReference: null, dateCreated: new Date().toISOString().slice(0, 10) };
 }
 
-export async function refundPayment(params: { captureId: string; amount: number }) {
-  return { refundId: fakeId("refund"), status: "refund_success" as const };
+export async function findByExternalReference(orderId: string) {
+  return null;
 }
 
-export async function createTransfer(params: { subaccountId: string; amount: number }) {
-  return { transferId: fakeId("transfer"), status: "transfer_success" as const };
+export async function refundPayment(params: { paymentId: string; value?: number; description?: string }) {
+  return { id: fakeId("refund"), status: "REFUNDED" as const, value: params.value ?? 0, netValue: 0, externalReference: null, dateCreated: new Date().toISOString().slice(0, 10) };
+}
+
+export async function createPixTransfer(params: { value: number; pixAddressKey: string; pixAddressKeyType: string }) {
+  return { id: fakeId("transfer"), status: "PENDING" as const, value: params.value };
 }

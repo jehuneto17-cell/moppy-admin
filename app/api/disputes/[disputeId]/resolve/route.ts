@@ -3,7 +3,7 @@ import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
 
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
-import { runCapture, runRefund } from "@/lib/payments";
+import { runRefund, settleOrder } from "@/lib/payments";
 
 async function requireAdmin() {
   const cookie = (await cookies()).get("session")?.value;
@@ -40,16 +40,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ dis
   try {
     let result: { split: unknown } | undefined;
     if (decision === "total") {
-      await runRefund(dispute.order_id, payment.amount.gross);
+      await runRefund(dispute.order_id, undefined);
     } else if (decision === "libera") {
-      result = await runCapture(dispute.order_id);
+      result = await settleOrder(dispute.order_id);
     } else {
       const refundAmount = Number(partial_refund_amount);
       if (!refundAmount || refundAmount <= 0 || refundAmount >= payment.amount.gross) {
         return NextResponse.json({ error: "valor de reembolso parcial inválido" }, { status: 400 });
       }
       const creditBase = Math.max(0, payment.amount.split_base - refundAmount);
-      result = await runRefund(dispute.order_id, refundAmount, creditBase);
+      result = await runRefund(dispute.order_id, refundAmount, { kind: "split", base: creditBase });
     }
 
     await disputeRef.update({

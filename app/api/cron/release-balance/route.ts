@@ -14,12 +14,14 @@ export async function GET(req: NextRequest) {
   }
 
   const now = Timestamp.now();
-  const captured = await adminDb.collection("payments").where("status", "==", "capture_success").get();
+  const captured = await adminDb.collection("payments").where("status", "==", "settled").get();
 
   let released = 0;
   for (const doc of captured.docs) {
     const payment = doc.data();
-    if (payment.balance_released || !payment.release_at || payment.release_at.toMillis() > now.toMillis()) continue;
+    // balance_frozen: chargeback recebido nesse pedido (PAYMENT-FLOW.md §4.7) — não
+    // libera pra "disponível" até o admin resolver.
+    if (payment.balance_released || payment.balance_frozen || !payment.release_at || payment.release_at.toMillis() > now.toMillis()) continue;
 
     await releaseWalletBalance(payment.cleaner_id, payment.split.cleaner_net);
     await doc.ref.update({ balance_released: true });

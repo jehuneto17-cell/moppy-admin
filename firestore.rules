@@ -214,6 +214,18 @@ service cloud.firestore {
       }
     }
 
+    // city_pricing: tabela de preços por cidade (Preços por Cidade, admin). Leitura
+    // pública autenticada porque o app mobile precisa consultar o preço vigente.
+    match /city_pricing/{cityId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isAdmin();
+
+      match /history/{entryId} {
+        allow read: if isAdmin();
+        allow create: if isAdmin();
+      }
+    }
+
     // admin_whitelist
     match /admin_whitelist/{adminId} {
       allow read: if isAuthenticated() && isAdmin();

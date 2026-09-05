@@ -1,57 +1,119 @@
 # Moppy — Perfil de Pagamento
 
-## Gateway Escolhido: Asaas
-
-**Por quê:** 
-- Cria subcontas para as faxineiras via API (sem exigir que cada uma abra conta e autorize por fora)
-- Faz split automático (parte da faxineira vai pra conta dela, comissão fica com o app)
-- Sem necessidade de app "segurar" dinheiro de terceiros (custódia é feita como pré-autorização no cartão do cliente)
-- Suporta pré-autorização e estorno sem custo
-- Cobra apenas percentual por transação capturada (sem mensalidade)
-
-**Ambiente de testes (Sandbox):**
-- Funciona sem CNPJ
-- Permite testar toda a infraestrutura de pagamento e confirmar taxas reais
-- CNPJ só é necessário para ir ao ar em produção
+**Projeto:** Moppy — Marketplace de Faxina
+**Última atualização:** 2026-09-04
+**Status:** ✅ Aprovado — Gate 3 (Jehu, 2026-09-04)
 
 ---
 
-## Modelo Financeiro
+## 0. Por que este documento foi reescrito (2026-09-04)
 
-### Comissão do App
-- **15%** sobre o valor base do serviço
+> **Isto não é preferência de design. É restrição real, descoberta testando ao vivo contra o sandbox do Asaas.**
 
-### Taxa de Processamento
-- Taxa do Asaas (cartão de crédito à vista): estimada em **R$0,49 + ~3%** *(confirmar no sandbox)*
-- Exemplo: R$150 de serviço = ~R$5,00 de taxa (R$0,49 fixo + R$4,50 percentual)
-- **Dividida 50/50** entre cliente e faxineira (~R$2,50 cada)
+O desenho anterior (2026-08-23) assumia **pré-autorização de cartão**: reservar o valor em D-1 e capturar só depois que o cliente confirmasse o serviço em D/D+1. Testes reais contra o sandbox da Moppy em 2026-09-04 derrubaram essa premissa:
 
-### Custo de Antecipação D+15
-- **Absorvido pelo app** (sai da comissão)
-- Taxa de antecipação automática: ~1,15% ao mês, proporcional a ~17 dias ≈ **~0,65% do serviço**
-- Exemplo: serviço de R$150 = ~R$1,00 de custo de antecipação
-- **Por quê:** mantém o valor líquido da faxineira transparente e limpo
+| Achado | Evidência |
+|---|---|
+| Não existe "authorizeOnly" em `POST /v3/payments` | Cobrança com `creditCardToken` volta `status: "CONFIRMED"` na hora — o dinheiro sai imediatamente |
+| Pré-autorização estendida não pode ser habilitada nesta conta | `POST /v3/creditCard/preAuthorization/config` rejeitou `daysToExpire` = 1, 2, 3 e 5: *"A atividade econômica de sua empresa não permite a criação de cobranças com pré-autorização maiores que 3 dias"* + *"O prazo deve estar dentro do intervalo de 3 a 25 dias"* — as duas regras juntas não deixam nenhum valor válido |
+| Não é limitação de sandbox | O Asaas libera pré-autorização estendida só para categorias específicas de atividade econômica (hotelaria, locação de veículos, cruzeiros, táxi). Limpeza residencial não está na lista. Uma conta de produção da Moppy cairia na mesma regra |
+| Declarar atividade econômica falsa foi **recusado** | Declarar "táxi" para uma instituição financeira para contornar a regra é risco real de bloqueio/congelamento de conta em produção. Jehu concordou em não fazer |
+| A autenticação documentada estava errada | O header é `access_token: <chave>`. `Authorization: Bearer` devolve **401**. Confirmado com curl |
+| Split e transferência PIX não exigem subconta | `POST /v3/payments` aceita `split[]` na própria cobrança; `POST /v3/transfers` transfere direto para `pixAddressKey`. Nenhum dos dois exige subconta por faxineira |
 
-### Exemplo Completo (Serviço de R$150)
+**Consequência:** o modelo de custódia via pré-autorização morreu. A Moppy passa a **cobrar de verdade** o cartão e a **estornar** quando o serviço não acontece. Todo o resto do modelo financeiro (comissão 15%, taxa 50/50, antecipação D+15, saldo "a liberar" → "disponível", saque mínimo R$20) continua valendo.
+
+---
+
+## 1. Decisão central: quando o cartão é cobrado
+
+### Decisão
+
+**A cobrança acontece em D-1 (véspera do serviço), pelo mesmo cron que antes fazia a pré-autorização.** O dinheiro entra na conta Asaas da Moppy antes de a faxineira sair de casa. Se o serviço não acontece, o caminho de volta é **estorno**, não "deixar de capturar".
+
+**Regra complementar (fura o cron):** se o pedido for confirmado com menos de 24h de antecedência — agendamento para hoje ou para amanhã cedo depois de o cron já ter rodado — a cobrança é disparada **na hora da confirmação**, não no cron. Sem isso o pedido chega ao dia do serviço sem cobrança nenhuma (falha real do cron atual, ver §7).
+
+### Por que não cobrar só na confirmação (D/D+1)
+
+| Critério | Cobrar em D-1 (escolhido) | Cobrar em D+1, após o serviço |
+|---|---|---|
+| Faxineira trabalha e o cartão recusa | **Impossível.** Recusa aparece em D-1, com ~13h de folga | **Acontece.** Ela gastou 4h e transporte, e não há dinheiro. A Moppy paga do bolso ou perde a faxineira |
+| Custo de uma recusa | Zero. Pedido cancelado, agenda liberada com aviso na véspera | Catastrófico. É o pior evento possível num marketplace novo — churn do lado da oferta |
+| Alavanca de recuperação | Retry 2× + 6h para o cliente trocar o cartão | Nenhuma. O cliente já consumiu o serviço |
+| Auto-confirmação em 24h | Continua funcionando (é só liberação interna de saldo) | Vira "vamos tentar te cobrar" — inviável |
+| Custo de cancelamento | Taxa de estorno (~R$5 por pedido cancelado após a cobrança) | Zero |
+| Percepção do cliente | "Cobraram na véspera" — igual a hotel, passagem, iFood | "Só pagou depois" — melhor, mas irrelevante frente ao risco acima |
+
+**Racional em uma frase:** o recurso escasso e insubstituível aqui é o dia da faxineira. O modelo de pagamento tem que proteger a oferta, porque cliente a Moppy consegue outro e faxineira que trabalhou de graça não volta.
+
+### Opção descartada: cobrar no fechamento do pedido (quando o cliente escolhe a candidata)
+
+Descartada. O intervalo entre fechar o pedido e o serviço pode ser de 1 a 14 dias. Cobrar no fechamento aumenta a janela de cancelamento (mais estornos, mais taxa perdida, mais "por que já cobraram?") e **não elimina o teste de D-1** — um cartão bom hoje pode estar estourado na véspera. D-1 é o último instante em que a falha ainda custa zero.
+
+### Custo novo que essa decisão cria
+
+Estorno de cartão no Asaas **não devolve a taxa da transação** (confirmar no sandbox). Cada pedido cancelado depois da cobrança custa à Moppy ~R$5,07 num ticket de R$152,50. É o preço de proteger a faxineira.
+
+**Métrica de vigilância:** `% de pedidos estornados após a cobrança`. Se passar de **8%**, reavaliar mover a cobrança para a manhã do dia D (janela menor de cancelamento, ainda antes do deslocamento da faxineira).
+
+---
+
+## 2. Decisão: sem subconta Asaas por faxineira, e sem `split` na cobrança
+
+**Decisão formal: a Moppy não cria subconta Asaas para faxineira, e não usa o campo `split` da cobrança.** O dinheiro é cobrado 100% para a conta principal da Moppy; a carteira da faxineira é um **livro-razão interno no Firestore**; o pagamento sai como **transferência PIX direta** (`POST /v3/transfers` com `pixAddressKey`) no momento do saque.
+
+Motivos:
+
+| Motivo | Detalhe |
+|---|---|
+| O `split` da cobrança executaria cedo demais | Ele divide o dinheiro **no momento da cobrança (D-1)**, antes de o serviço acontecer. Isso quebra o "a liberar → disponível em D+15" e transforma todo estorno em cobrança reversa contra a faxineira |
+| Subconta é atrito de onboarding | Cada faxineira teria que abrir conta, mandar documento e ser aprovada pelo Asaas antes de receber o primeiro pedido. Para o público-alvo da Moppy isso mata a conversão |
+| O código já é assim | `app/api/wallets/withdraw/route.ts` já lê `cleaner.pix.key_value` e transfere da conta principal. Nunca houve subconta de verdade em lugar nenhum do código — o documento antigo é que estava desalinhado |
+| PIX direto não exige subconta | Confirmado ao vivo: `POST /v3/transfers` com `pixAddressKey` + tipo de chave resolve o saque |
+
+**O que isso implica e precisa estar escrito:**
+
+1. A Moppy **passa a segurar dinheiro de terceiros em trânsito**. O documento anterior dizia o contrário ("custódia é feita como pré-autorização"). Isso acabou. O saldo "a liberar" + "disponível" das faxineiras é **passivo**, não caixa da Moppy.
+2. **Item obrigatório para o contador:** 100% do valor entra na conta da Moppy. Só a comissão + taxa é receita; o resto é repasse. Precisa de tratamento contábil e de nota fiscal correto, senão vira faturamento inflado.
+3. Um relatório de conferência precisa mostrar, todo dia: `saldo em conta Asaas ≥ soma de todas as carteiras (a liberar + disponível)`. Se essa desigualdade quebrar, a Moppy gastou dinheiro de faxineira.
+
+---
+
+## 3. Modelo Financeiro
+
+Inalterado, exceto pela nova linha de custo de estorno.
+
+| Item | Valor | Quem paga |
+|---|---|---|
+| Comissão do app | **15%** sobre a base do serviço | Descontado da faxineira |
+| Taxa Asaas (cartão à vista) | ~R$0,49 + ~3% *(confirmar no sandbox)* | **50/50** cliente e faxineira |
+| Custo de antecipação D+15 | ~0,65% do serviço | **App absorve** |
+| Taxa de urgência | R$3,50 – R$5,50 | Cliente. 100% do app, não reembolsável, não entra na base de comissão |
+| **Custo de estorno (NOVO)** | **Taxa da transação, não devolvida pelo Asaas (~R$5 em R$152,50)** | **App absorve** |
+
+### Exemplo completo (serviço de R$150)
 
 | Conceito | Valor |
-|----------|-------|
-| Valor base do serviço | R$ 150,00 |
-| Comissão do app (15%) | -R$ 22,50 |
-| Taxa de processamento (~R$5,00) | |
-| — Cliente paga 50% | +R$ 2,50 |
-| — Faxineira paga 50% | -R$ 2,50 |
-| **Custo de antecipação D+15 (absorvido pelo app)** | **~-R$ 1,00** |
+|---|---|
+| Base do serviço | R$ 150,00 |
+| Taxa Asaas (0,49 + 3%) | R$ 5,07 |
+| — metade do cliente | + R$ 2,53 |
+| — metade da faxineira | − R$ 2,53 |
+| Comissão do app (15% da base) | − R$ 22,50 |
+| Custo de antecipação (app absorve) | − R$ 0,98 |
 | | |
-| **Cliente paga** | **R$ 152,50** |
-| **Faxineira recebe (líquido, em D+15)** | **R$ 125,00** |
-| **App fica com** | **R$ 22,50 (comissão) + R$ 2,50 (50% taxa) + R$ 1,00 (antecipação) = R$ 26,00** |
+| **Cliente é cobrado** | **R$ 152,53** |
+| **Faxineira recebe (líquido, D+15)** | **R$ 124,97** |
+| **App fica com** | **R$ 22,50 + R$ 2,53 − R$ 0,98 = R$ 24,05** |
 
-**Nota:** as estimativas de taxa devem ser confirmadas no sandbox do Asaas antes de ir ao ar.
+**Duas correções de cálculo que a implementação real precisa aplicar** (o mock nunca cobrou taxa de verdade, então passaram despercebidas):
+
+1. `lib/split.ts` calcula `app_total = comissão + feeShare + anticipationCost`. A antecipação é **custo**, tem que **subtrair**. Hoje o painel financeiro superestima o lucro do app.
+2. A taxa do Asaas incide sobre o **valor efetivamente cobrado** (`amount.gross`, R$152,53), não sobre a base (`amount.split_base`, R$150). Hoje `computeSplit` recebe a base — subestima a taxa em ~R$0,08 por pedido. Pequeno, mas em conciliação com o extrato do Asaas nunca fecha.
 
 ---
 
-## Tabela de Preços MVP (Por Tipo e Tamanho)
+## 4. Tabela de Preços MVP (inalterada)
 
 ### Base (Limpeza Padrão — Manutenção)
 
@@ -62,7 +124,7 @@
 | 3 quartos | R$ 150 |
 | 4+ quartos | R$ 180 |
 
-### Limpeza Pesada (Sujeira Acumulada) — +40% sobre base
+### Limpeza Pesada — +40% sobre a base
 
 | Tamanho | Preço |
 |---------|-------|
@@ -78,11 +140,9 @@
 | Cada banheiro além do primeiro | +R$ 15 |
 | Área externa | +R$ 25 |
 | Faxineira leva os produtos | +R$ 30 |
-| Passar roupa (adicional) | +R$ 20 |
+| Passar roupa | +R$ 20 |
 
 ### Taxa de Urgência (Destaque Pago)
-
-Valor fixo, calculado na hora conforme demanda local:
 
 | Faixa de Demanda | Valor |
 |-----------------|-------|
@@ -90,411 +150,185 @@ Valor fixo, calculado na hora conforme demanda local:
 | Média | R$ 4,50 |
 | Alta | R$ 5,50 |
 
-- 100% fica com o app
-- Não reembolsável (mesmo se ninguém aceitar)
-- Cliente vê o valor e a explicação sem letra miúda no checkout
+100% do app, não reembolsável mesmo se ninguém aceitar, fora da base de comissão. Cliente vê o valor e a explicação no checkout, sem letra miúda.
 
 ### Variação por Cidade
 
-- Tabela acima é referência (interior)
-- Cada cidade tem tabela própria cadastrada manualmente
-- População do IBGE serve como sugestão de ponto de partida (mas valor final é revisado)
-- App só opera em cidade com tabela cadastrada e ativa
-- Em cidade sem cobertura: "ainda não atendemos sua região"
-
-### Evolução de Preço em Três Fases
-
-**Fase 1 (MVP):** preço fixo; app coleta métricas por cidade desde dia 1, mas não ajusta automaticamente; admin ajusta na mão com base nos dados
-
-**Fase 2:** sistema sugere ajustes, admin aprova
-
-**Fase 3:** auto-ajuste dentro de limites de segurança
+Cada cidade tem tabela própria, cadastrada manualmente. App só opera onde há tabela ativa. Fase 1 (MVP): preço fixo, métricas coletadas desde o dia 1, ajuste manual. Fase 2: sistema sugere, admin aprova. Fase 3: auto-ajuste dentro de limites.
 
 ---
 
-## Fluxo de Pagamento
+## 5. Fluxo resumido
 
-### Dia D-1 (Véspera do Serviço)
+Detalhamento completo, com diagrama e casos de erro, em `PAYMENT-FLOW.md`.
 
-1. **Vercel Cron** dispara automaticamente à noite
-2. App faz chamada à API do Asaas: pré-autorizar valor no cartão do cliente
-3. Asaas responde imediatamente (sucesso ou falha)
-4. Backend registra na BD: pré-autorização feita / falhou
-5. **Webhook do Asaas** confirma o status (proteção de idempotência)
-6. Cliente vê notificação: "Pagamento aprovado, será cobrado após o serviço"
+```
+FECHAMENTO DO PEDIDO   cliente escolhe a candidata → pedido "confirmed"
+                       nada é cobrado ainda (salvo pedido para <24h → cobra agora)
+        ↓
+D-1 (cron, 19h BRT)    cria a cobrança no Asaas com o cartão tokenizado
+                       → dinheiro na conta Asaas da Moppy (charge_success)
+                       recusou? retry 1h, retry 1h, depois 6h para trocar o cartão
+        ↓
+D                      faxineira confirma chegada → executa → marca "Concluído"
+        ↓
+ATÉ 24h APÓS           cliente confirma (ou o app confirma sozinho em 24h)
+                       → split calculado → carteira creditada "a liberar" (settled)
+                       cliente reclama → disputa (dinheiro já está com a Moppy, não sai)
+        ↓
+D+15                   "a liberar" vira "disponível"
+        ↓
+SAQUE                  faxineira pede ≥ R$20 → PIX direto para a chave dela
+```
 
-**Se falhar:**
-- Tentativa automática #1 (após 1h)
-- Tentativa automática #2 (após 1h)
-- Se ainda falhar: push para cliente trocar cartão (prazo até 6h antes do serviço)
-- Se não resolver: pedido cancelado, faxineira recebe notificação para liberar agenda
-
-### Dia D (Dia do Serviço)
-
-1. Faxineira chega e confirma chegada (código ou GPS+foto)
-2. Serviço é executado
-3. Faxineira marca como "Concluído"
-4. Cliente recebe notificação: "Está tudo certo?"
-
-### Confirmação (Até 24h Após Conclusão)
-
-**Cenário A: Cliente confirma ou app confirma automaticamente**
-
-1. Cliente clica "Sim" (ou não responde em 24h e app confirma automaticamente)
-2. App faz chamada à API do Asaas: capturar valor no cartão
-3. Asaas confirma captura
-4. **Webhook do Asaas** confirma captura (idempotência)
-5. Backend processa split:
-   - Comissão (15%) → conta principal do app
-   - Taxa de processamento 50% → app
-   - Antecipação (~0,65%) → app
-   - Restante → conta da faxineira (via subconta Asaas)
-6. Saldo da faxineira: marca como "a liberar" (D-1 a D+14) → "disponível" em D+15
-7. Ambos são notificados para avaliar
-
-**Cenário B: Cliente reporta problema**
-
-1. Cliente clica "Tive um problema" + descreve + anexa fotos
-2. Valor continua retido (pré-autorização mantida)
-3. Faxineira é notificada, tem 24h para responder (texto + fotos)
-4. Admin analisa em até 48h
-5. Admin decide:
-   - **Reembolso total:** estorna valor integralmente no cartão do cliente
-   - **Reembolso parcial:** estorna parte, libera parte para faxineira
-   - **Libera pagamento para faxineira:** captura integralmente
-6. Ambos são notificados da decisão
-
-### Dia D+15 (15 Dias Após Conclusão)
-
-- Saldo da faxineira muda de "a liberar" para "disponível"
-- Faxineira pode solicitar saque (mínimo R$20)
-- App processa transferência PIX automaticamente (chave cadastrada no onboarding)
-- Faxineira recebe na conta PIX em 1-2 dias úteis
+**Diferença central em relação ao desenho antigo:** entre `charge_success` e `settled` o dinheiro **já está na conta da Moppy**. Antes ele estava reservado no cartão. Todo caminho de volta (cancelamento, disputa, no-show) agora é **estorno**, com custo e latência reais.
 
 ---
 
-## Tratamento de Falhas
+## 6. Cancelamento — regras reescritas
 
-### Pré-autorização Falha
+O critério antigo era "a pré-autorização já foi feita?". O critério novo é **"a cobrança já foi feita?"**, combinado com a antecedência.
 
-| Cenário | Ação |
-|---------|------|
-| Cartão recusado (limite, vencido, banco bloqueia) | Tentativa automática em 1h, depois mais 1 tentativa em 1h |
-| Após 2 falhas | Push para cliente trocar cartão (prazo 6h antes do serviço) |
-| Cliente não toca | Pedido cancelado, faxineira libera agenda, sem compensação |
-| Penalidade | Cliente sofre penalidade no score de confiabilidade |
+| # | Situação | Cobrança | Ação financeira | Estado final |
+|---|---|---|---|---|
+| 1 | Cliente cancela **antes da cobrança** | não existe | nada a fazer | `cancelled_free` |
+| 2 | Cliente cancela **após a cobrança**, com **≥12h** de antecedência | cobrada | **estorno total** do valor cobrado (R$152,53). App absorve a taxa perdida | `refunded` |
+| 3 | Cliente cancela **após a cobrança**, com **<12h** | cobrada | **retém 30% da base** (R$45,00) → creditado **integralmente** na carteira da faxineira, sem comissão e sem rateio de taxa. **Estorna o restante** (R$107,53) | `partial_refund` |
+| 4 | Faxineira cancela **antes da cobrança** | não existe | nada. Pedido volta para `open` para outra candidata, ou cancela se não der tempo | `cancelled_free` |
+| 5 | Faxineira cancela **após a cobrança** | cobrada | **estorno total** ao cliente. App absorve a taxa | `refunded` |
+| 6 | Cobrança falha 3× e o cliente não troca o cartão em 6h | falhou | nada a estornar | `cancelled_no_payment` |
+| 7 | Cliente quer cancelar **depois do serviço executado** | cobrada | **não é cancelamento.** Vira disputa | `disputa_aberta` |
 
-### Captura Falha
+**Mudança deliberada em relação ao doc antigo:** no caso 3, o documento anterior descontava taxa e entregava ~R$41 à faxineira. Agora ela recebe os R$45 cheios. Motivo: ela é a parte prejudicada, a conta fica trivial de explicar no app, e o custo extra para o app (~R$4) é menor que o custo de uma faxineira achando que levou desconto num cancelamento que não foi culpa dela.
 
-| Cenário | Ação |
-|---------|------|
-| Asaas recusa captura (erro raro) | Backend tenta 1x mais em 1h, depois aciona suporte |
-| Falha confirmada | Admin contata cliente e faxineira, resolve manualmente |
-| Estorno | Se necessário, estorna pré-autorização de volta ao cartão |
-
-### Estorno Falha
-
-| Cenário | Ação |
-|---------|------|
-| Estorno é recusado pelo banco | Suporte manual (contato com cliente) |
-| Pendência indefinida | Escalação a advogado (raro) |
-
-### Webhook Falha ou Duplicado
-
-- Proteção de idempotência: backend confere se evento já foi processado
-- Se webhook chegar 2x: segunda tentativa é ignorada (sem reprocessar)
-- Se webhook não chegar: cron paralelo (verificação a cada 2h) confirma status com Asaas e sincroniza BD
+**Penalidades (inalteradas):** faxineira que cancela perde score (−5 a −10 conforme a antecedência); cliente com cobrança recusada por culpa do cartão perde score (−5).
 
 ---
 
-## Cancelamento
+## 7. Estados do pagamento e quem muda cada um
 
-### Cliente Cancela Antes do D-1
+O documento antigo misturava estado do pagamento com estado da carteira. Isso foi separado: `saldo_a_liberar` / `saldo_disponivel` **não são estados de pagamento**, são campos de `wallets/{cleanerId}.balance`.
 
-- Pré-autorização ainda não foi feita
-- **Cancelamento total e gratuito**
-- Faxineira recebe notificação para liberar agenda
+| Estado | Significado | Quem muda | Efeito na agenda da faxineira (o "estoque" da Moppy) |
+|---|---|---|---|
+| `pending` | Pedido confirmado, cobrança ainda não criada | Sistema (ao confirmar o pedido) | Slot reservado |
+| `charge_pending` | Cobrança enviada ao Asaas, aguardando resposta/webhook | Cron D-1 (ou confirmação < 24h) | Slot reservado |
+| `charge_retry_1` / `charge_retry_2` | Recusou, retry agendado para +1h | Cron | Slot reservado |
+| `charge_failed` | 3 tentativas falharam; cliente tem 6h para trocar o cartão | Cron | Slot reservado, com aviso à faxineira |
+| `charge_success` | **Dinheiro cobrado, na conta Asaas da Moppy.** Carteira da faxineira ainda NÃO creditada | Webhook `PAYMENT_CONFIRMED` (ou resposta da criação, reconciliada depois) | Slot **firme** |
+| `settled` | Serviço confirmado, split calculado, carteira creditada como "a liberar" | Cliente (C23) ou cron auto-confirm 24h ou admin (disputa "libera") | Slot consumido |
+| `disputa_aberta` | Cliente reportou problema; dinheiro fica parado na conta da Moppy | Cliente (C24) | Slot consumido |
+| `refunded` | Estorno total processado | Admin, cliente (cancelamento ≥12h) ou sistema (faxineira cancelou) | Slot **liberado** |
+| `partial_refund` | Estorno parcial + crédito parcial na carteira | Admin (disputa) ou sistema (cancelamento <12h) | Slot liberado |
+| `refund_pending` | Estorno enviado, aguardando confirmação do Asaas | Sistema | — |
+| `refund_failed` | Estorno recusado — **exige ação manual do admin** | Sistema | — |
+| `cancelled_free` | Cancelado antes de qualquer cobrança | Cliente ou faxineira | Slot liberado |
+| `cancelled_no_payment` | Cobrança falhou definitivamente | Cron | Slot liberado |
+| `chargeback_requested` | **NOVO.** Cliente contestou no banco | Webhook `PAYMENT_CHARGEBACK_REQUESTED` | Congela o saldo desse pedido na carteira |
 
-### Cliente Cancela Com +12h de Antecedência
+### Mapa de renomeação (para a implementação)
 
-- Pré-autorização já feita
-- **Estorno total**
-- Valor volta integralmente ao cartão do cliente
-- Faxineira recebe notificação
-
-### Cliente Cancela Com −12h
-
-- Pré-autorização já feita
-- **Captura 30%** como taxa de reserva (vai para faxineira)
-- Taxa já desconta o Asaas (~R$41 num serviço de R$150, não R$45)
-- **Estorno dos 70%** restantes ao cliente
-
-**Exemplo (serviço de R$150 com −12h):**
-- App captura: R$152,50 (cliente) com taxa já descontada
-- Faxineira recebe: R$150 × 30% = R$45 (bruto)
-- Taxa Asaas sobre esse valor: ~R$4
-- Faxineira recebe: ~R$41 (líquido)
-- Estorno ao cliente: R$152,50 − R$41 = ~R$111,50
-
-### Faxineira Cancela
-
-- **Estorno total** ao cliente (pré-autorização desfeita)
-- **Penalidade no histórico da faxineira**
-- Score cai
-
----
-
-## Carteira e Saque
-
-### Tela de Carteira (Faxineira)
-
-**Saldo:**
-- Total (todas as fontes)
-- Breakdown por status:
-  - **"A liberar"** (D-1 a D+14): serviços concluídos mas ainda não liberados para saque
-  - **"Disponível"** (D+15+): pronto para sacar
-
-**Extrato:**
-- Tabela com data, pedido, valor, status
-- Busca/filtro (opcional em Fase 2)
-
-### Saque
-
-- Botão "Solicitar saque"
-- Mínimo: R$20
-- Máximo: saldo disponível
-- Transferência: PIX automática (chave cadastrada no onboarding)
-- Confirmação no app + SMS na chave PIX
-- Processamento: 1-2 dias úteis (via Asaas)
-
-### Chave PIX Inválida
-
-1. Primeiro saque falha: notificação para corrigir
-2. Após 3 falhas: suspensão de saques até corrigir (pode editar chave no perfil)
+| Estado antigo | Estado novo |
+|---|---|
+| `preauth_pending` | `charge_pending` |
+| `preauth_retry_1` / `preauth_retry_2` | `charge_retry_1` / `charge_retry_2` |
+| `preauth_success` | `charge_success` |
+| `preauth_failed` | `charge_failed` |
+| `capture_pending` | **removido** — não existe captura separada |
+| `capture_success` | `settled` |
+| `capture_failed` | **removido** — a falha agora é `charge_failed`, em D-1 |
+| `payment_processado` | `settled` (fundido) |
+| `disputa_liberado` | `settled` |
+| `disputa_reembolso_total` | `refunded` |
+| `disputa_reembolso_parcial` | `partial_refund` |
+| `saldo_a_liberar` / `saldo_disponivel` | deixam de ser estados de pagamento; viram `wallets/{id}.balance.pending_release` / `.available` |
+| — | `chargeback_requested` (novo) |
 
 ---
 
-## Métricas Financeiras (Coletar Desde Dia 1)
+## 8. Conciliação — como o Jehu sabe que recebeu
 
-### Por Serviço
-- Preço ofertado (base + adicionais)
-- Tipo de limpeza
-- Cidade
-- Uso de taxa de urgência (qual faixa)
-- Status: aceito / cancelado sem candidata
+Três camadas, todas obrigatórias no MVP:
 
-### Por Período (Diário, Semanal, Mensal)
+| Camada | O quê | Onde |
+|---|---|---|
+| **Painel financeiro** | Lista diária: pedidos cobrados, valor bruto, comissão, taxa, estornos, saldo devido às faxineiras | `/financeiro` (já existe) |
+| **Cron de reconciliação (2h)** | Para cada pagamento em `charge_pending` / `refund_pending`, consulta `GET /v3/payments/{id}` e sincroniza. Detecta webhook perdido | `/api/cron/reconcile` |
+| **Trava de caixa (diária)** | Compara saldo da conta Asaas com a soma de todas as carteiras. Alerta se `saldo Asaas < passivo das carteiras` | Card no dashboard + alerta |
 
-**Demanda:**
-- Total de pedidos criados (por cidade)
-- Pedidos aceitos vs cancelados
-- Tempo até 1ª candidatura
-- Número de candidatas por pedido
-- Uso de taxa de urgência (faixa + receita)
-
-**Saúde do Marketplace:**
-- Tempo até cliente escolher
-- Pedidos sem candidata (24h / 48h)
-- No-show / chegada não confirmada
-- Disputas aberta (número, taxa de resolução)
-
-**Financeiro:**
-- Comissão arrecadada (total + por tipo de limpeza)
-- Custo de antecipação absorvido
-- Receita de taxa de urgência
-- Estornos (por motivo)
-- Saques processados (volume + quantidade)
-
-**Qualidade:**
-- Cancelamentos (por lado + antecedência)
-- Taxa de resolução de disputa (reembolso total / parcial / liberado)
-- Nota média (cliente + faxineira)
-- Taxa de repetição (cliente pede novamente + faxineira aceita novamente)
+**A pergunta "recebi ou não?" se responde no painel, nunca abrindo o Firestore.** Todo pagamento carrega `externalReference = orderId`, então qualquer linha do extrato do Asaas é rastreável até o pedido.
 
 ---
 
-## Infraestrutura de Pagamento (Obrigatória no MVP)
+## 9. Segredos e variáveis de ambiente
 
-### Vercel Cron
-- **O quê:** job agendado que dispara pré-autorização
-- **Quando:** noite anterior (D-1)
-- **Frequência:** diária (executa para todos os serviços do dia seguinte)
-- **Retry:** automático em caso de falha temporária do Asaas
-- **Logging:** todos os eventos registrados (sucesso, falha, tentativa)
+Todas em variável de ambiente na Vercel. Nenhuma no código, nenhuma no app mobile.
 
-### Webhook do Asaas
-- **Endpoint:** `POST /api/webhooks/asaas`
-- **Autenticação:** token secreto (verificar no header)
-- **Eventos:** pré-autorização, captura, estorno, falha
-- **Idempotência:** checar `event_id` + timestamp para não processar 2x
-- **Resposta:** 200 OK imediato (não bloquear com processamento)
-- **Retry do Asaas:** tenta 5x em 24h se não receber 200
+| Variável | Onde vive | Para quê |
+|---|---|---|
+| `ASAAS_API_KEY` | Vercel (admin, server-side) | Header `access_token` de toda chamada |
+| `ASAAS_BASE_URL` | Vercel | `https://sandbox.asaas.com/api/v3` ou `https://api.asaas.com/api/v3` |
+| `ASAAS_WEBHOOK_TOKEN` | Vercel | Valor que o Asaas devolve no header `asaas-access-token` — validar em todo webhook |
+| `CRON_SECRET` | Vercel | Autenticação dos crons (`authorization: Bearer`) |
+| ~~`ASAAS_WALLET_ID`~~ | **removida** | Só fazia sentido com subconta/split |
 
-### Banco de Dados
-
-**Coleções Firebase:**
-
-- **payments**
-  - `paymentId` (chave)
-  - `orderId`, `customerId`, `cleanerId`
-  - `amount`, `currency`
-  - `status` (pending / preauth_pending / preauth_success / preauth_failed / capture_success / capture_failed / refunded)
-  - `preauth_date`, `capture_date`
-  - `asaas_payment_id` (ID externo)
-  - `asaas_subconta_id` (para split)
-  - `webhook_events` (array de eventos do webhook, com timestamps)
-  - `created_at`, `updated_at`
-
-- **payment_events** (log de todos os eventos)
-  - `eventId` (chave)
-  - `paymentId`, `orderId`
-  - `type` (preauth / capture / refund / split / webhook)
-  - `status` (success / failed / pending)
-  - `details` (JSON com resposta do Asaas)
-  - `timestamp`
+Regras que continuam valendo: nunca guardar PAN, CVV ou validade — só `creditCardToken`, últimos 4 dígitos e bandeira. HTTPS obrigatório. Nenhum dado sensível em log.
 
 ---
 
-## Estados de Transação
+## 10. Limites e prazos
 
-| Status | Significado | Quando | Próximo Estado |
-|--------|-------------|--------|----------------|
-| `pending` | Pedido criado, Cron ainda não rodou | Criação | `preauth_pending` |
-| `preauth_pending` | Cron disparou pré-autorização, aguardando resposta | D-1 | `preauth_success` ou `preauth_failed` |
-| `preauth_retry_1` | 1ª tentativa falhou, retry agendado em 1h | Falha D-1 | `preauth_pending` (retry) |
-| `preauth_retry_2` | 2ª tentativa falhou, retry final agendado | Falha +1h | `preauth_pending` (retry final) |
-| `preauth_success` | Pré-autorização confirmada, valor reservado | Webhook OK | `capture_pending` ou `disputa_aberta` |
-| `preauth_failed` | Todas as tentativas falharam, pedido será cancelado | 3ª falha | `cancelled_no_payment` |
-| `capture_pending` | Cliente confirmou, captura em andamento | Confirmação | `capture_success` ou `capture_failed` |
-| `capture_success` | Valor capturado, split executado | Webhook | `payment_processado` → `saldo_a_liberar` |
-| `capture_failed` | Captura falhou (raro), requer suporte | Erro raro | Manual |
-| `disputa_aberta` | Cliente reportou problema, análise em andamento | Cliente clica "problema" | `disputa_reembolso_total`, `disputa_reembolso_parcial`, `disputa_liberado` |
-| `disputa_reembolso_total` | Admin decidiu reembolsar 100% | Admin | `refunded` |
-| `disputa_reembolso_parcial` | Admin decidiu reembolsar parcialmente | Admin | `partial_refund` |
-| `disputa_liberado` | Admin liberou pagamento para faxineira | Admin | `payment_processado` |
-| `refunded` | Estorno processado, valor voltou ao cliente | Webhook | Cliente recebeu |
-| `partial_refund` | Estorno parcial (ex: cancelamento −12h) | Webhook | Cliente + faxineira recebem |
-| `refund_pending` | Estorno em processamento, aguardando Asaas | Admin disputa ou cancelamento −12h | `refunded` ou `refund_failed` |
-| `refund_failed` | Estorno falhou, requer ação manual | Erro Asaas | Manual (admin suporte) |
-| `cancelled_free` | Cancelamento antes D-1, gratuito | Cliente cancela antes D-1 | Fim |
-| `cancelled_no_payment` | Pré-auth falha 2x, cliente não resolve, cancelado | 6h timeout | Fim |
-| `payment_processado` | Split executado, saldo em "a_liberar" | Webhook | D+15 → `saldo_disponivel` |
-| `saldo_a_liberar` | Faxineira: saldo bloqueado até D+15 | D → D+14 | `saldo_disponivel` |
-| `saldo_disponivel` | Faxineira: pode sacar via PIX | D+15 | Saque processado |
+| Limite | Valor |
+|---|---|
+| Mínimo por serviço | R$ 20,00 |
+| Mínimo para saque | R$ 20,00 |
+| Máximo no cartão | Limite do cliente |
 
-**Diagrama resumido:** vide `PAYMENT-FLOW.md` seção 2 para máquina de estados completa.
+| Prazo | Duração |
+|---|---|
+| Cobrança | D-1, 19h BRT (ou na confirmação, se faltar <24h) |
+| Retry de cobrança | 1h entre tentativas, 2 retries |
+| Janela para o cliente trocar o cartão | 6h após a 3ª falha |
+| Confirmação do cliente | 24h (lembrete em 12h), depois auto-confirma |
+| Defesa da faxineira na disputa | 24h |
+| Análise do admin | até 48h |
+| Estorno chegando ao cliente | 1 a 2 faturas / até 2 dias úteis, conforme o banco |
+| Saldo "a liberar" → "disponível" | D+15 contado da **confirmação**, não da cobrança |
+| Saque PIX | 1-2 dias úteis |
+| Reconciliação | a cada 2h |
+
+**Prazo que sumiu:** "validade da pré-autorização (~30 dias)" não existe mais. Não há hold para expirar.
 
 ---
 
-## Operações Suportadas (Asaas)
+## 11. Reaproveitamento de outros projetos do Jehu
 
-| Operação | Tipo | Quando | Requisito |
-|----------|------|--------|-----------|
-| **Pré-Autorizar** | Preauth | D-1, Cron | Cartão válido, limite suficiente |
-| **Capturar** | Charge | Confirmação cliente | Pré-auth ativa |
-| **Estorno Total** | Refund | Cancelamento, disputa reembolso total | Captura ou pré-auth ativa |
-| **Estorno Parcial** | Partial Refund | Cancelamento −12h, disputa reembolso parcial | Captura ativa |
-| **Consultar Status** | Query | Sincronização 2h (fallback webhook) | Payment ID |
-| **Transferir Subconta** | Transfer | Split (após captura) | Subconta ativa |
-| **Saque PIX** | Withdrawal | D+15, cliente solicita | Chave PIX válida, saldo ≥R$20 |
-| **Criar Subconta** | Account | Onboarding faxineira | Documentos válidos |
-
-**Detalhes:** vide `PAYMENT-IMPLEMENTATION.md` seção 2 para endpoints completos.
+| O quê | De onde | Estado |
+|---|---|---|
+| Cliente Asaas com header `access_token`, `User-Agent`, tratamento de erro | Nenhum projeto tem integração Asaas real ainda — Empório, Nova Era Tintas e Sara Pastelaria usam PIX manual / link | **Escrever do zero.** Será o primeiro cliente Asaas real da fábrica — vale nascer como módulo reaproveitável |
+| Webhook idempotente por `event_id` | `app/api/webhooks/asaas/route.ts` (Moppy) | Estrutura serve; o payload e o header de auth precisam virar os reais |
+| Cron autenticado por `CRON_SECRET` | Moppy, 3 crons já em pé | Reaproveita direto |
+| Carteira com "a liberar"/"disponível" + `runTransaction` | `lib/payments.ts` (Moppy) | Reaproveita direto, só renomeia estados |
 
 ---
 
-## Limites e Constraints
+## 12. Riscos que este modelo cria e não existiam antes
 
-### Limites de Valor
-
-| Limite | Valor | Aplicável a |
-|--------|-------|------------|
-| **Mínimo por serviço** | R$ 20,00 | Todos |
-| **Máximo por serviço** | Sem limite (validar com Asaas) | Todos |
-| **Mínimo para saque** | R$ 20,00 | Faxineira |
-| **Máximo diário de saques** | Sem limite formal (validar com Asaas) | Faxineira |
-| **Máximo no cartão** | Limite do cliente (banco) | Cliente |
-
-### Prazos
-
-| Prazo | Duração | Descrição |
-|-------|---------|-----------|
-| **Pré-auth validade** | ~30 dias | Asaas padrão |
-| **Retry pré-auth** | 1h entre tentativas (2 retries) | Total 2h |
-| **Escala cliente** | 6h após falha 2x | Trocar cartão |
-| **Confirmação cliente** | 24h + lembrete 12h | Auto-confirma após 24h |
-| **Defesa faxineira** | 24h após disputa | Auto-análise sem defesa se não responder |
-| **Análise admin** | Até 48h | Disputa |
-| **Webhooks retry** | Até 5x em 24h | Asaas |
-| **Sincronização fallback** | A cada 2h | Backend |
-| **Estorno ao cliente** | Até 2 dias úteis | Asaas → banco |
-| **Saque PIX** | 1-2 dias úteis | Asaas → PIX |
-| **Saldo "a liberar"** | D até D+14 | Após captura |
-| **Saldo "disponível"** | D+15+ | Pronto para saque |
-
-### Taxa e Comissão
-
-| Elemento | Valor | Quem paga | Notas |
-|----------|-------|----------|-------|
-| **Comissão app** | 15% | App (abate do serviço) | Não incide sobre taxa de urgência |
-| **Taxa Asaas (cartão)** | ~R$0,49 fixo + 3% | 50/50 app + faxineira | Confirmar no sandbox |
-| **Custo antecipação D+15** | ~0,65% ao mês | App (absorve) | Proporcional a ~17 dias |
-| **Taxa urgência** | R$3,50-5,50 | App (100%) | Não reembolsável |
-| **Taxa cancelamento −12h** | 30% (vai à faxineira) | Não há taxa, é compensação | Já descontada a taxa Asaas da faxineira |
-
-### Validações Críticas
-
-| Validação | Ponto | Ação se falhar |
-|-----------|-------|----------------|
-| Cartão válido (data, número, limite) | D-1 | Retry 2x, escala 6h, cancela |
-| Chegada confirmada (código OU GPS) | Chegada | Bloqueado, suporte |
-| Conclusão confirmada (manual OU 24h) | D até D+24 | Auto-confirma após 24h |
-| Disputa resolvida | D até D+48 | Admin analisar |
-| Saldo faxineira positivo | Sempre | Não permite saque negativo |
-| Chave PIX válida | Saque | Retry 3x, suspende após |
-| Documentos faxineira legíveis | Onboarding | Rejeita, pede reenviio |
-
-### Conformidade
-
-| Aspecto | Regra | Status |
-|---------|-------|--------|
-| **Dados de cartão** | Nunca guardar PAN/CVV/validade | ✓ Tokenizar via Asaas |
-| **Webhook idempotência** | event_id + timestamp | ✓ Implementado |
-| **HTTPS** | Todos endpoints | ✓ Obrigatório |
-| **Logging** | Sem dados sensíveis | ✓ Log completo de transações |
-| **Rate limiting** | Evitar abuso | *(TBD — implementar antes de Prod)* |
-| **LGPD** | Consentimento, direito ao esquecimento | ✓ Termos no app |
+| Risco | Mitigação |
+|---|---|
+| **Chargeback.** Cobrança real pode ser contestada no banco | Tratar `PAYMENT_CHARGEBACK_REQUESTED`; congelar o saldo daquele pedido se ainda não sacado; guardar a trilha (chegada com código/GPS+foto, chat, avaliação) como evidência |
+| **Cobrança duplicada.** Cron rodando duas vezes = cliente cobrado 2× | `payments/{orderId}` como chave natural + `externalReference = orderId` + consulta `GET /v3/payments?externalReference=` antes de criar |
+| **Estorno duplicado.** Admin clica duas vezes em "reembolso total" | `runRefund` precisa checar o estado antes (hoje **não checa** — falha real do código atual) |
+| **Moppy gasta dinheiro de faxineira** | Trava de caixa diária (§8) |
+| **Custo de estorno acumulado** | Métrica "% estornado após cobrança"; gatilho de revisão em 8% |
+| **Enquadramento contábil do repasse** | Item obrigatório para o contador antes da produção |
 
 ---
 
-### Segurança
+## PRÓXIMO PASSO
 
-- Dados de cartão nunca ficam no app (tokenizados pelo Asaas)
-- Tokens de cartão armazenados com acesso restrito no Firebase
-- Webhook do Asaas verificado por token secreto
-- Todas as transações logadas (auditoria)
-- Cron rodinhas com permissões restritas (só ler BD, chamar Asaas, escrever log)
+1. **A cobrança do cartão passa a ser real em D-1** (o cron que pré-autorizava agora cobra), porque pré-autorização não é liberada para a atividade econômica de limpeza no Asaas — restrição confirmada ao vivo, não escolha de design.
+2. **Todo caminho de volta vira estorno:** cancelamento ≥12h = estorno total; <12h = retém 30% para a faxineira e estorna o resto; disputa = estorno total ou parcial decidido pelo admin. Custo: ~R$5 de taxa não devolvida por pedido estornado, absorvido pelo app.
+3. **Sem subconta e sem split na cobrança:** tudo entra na conta principal da Moppy, a carteira é livro-razão no Firestore e o saque sai por PIX direto — que é exatamente o que o código já faz. Em troca, a Moppy passa a segurar dinheiro de terceiros, o que exige trava de caixa diária e tratamento contábil do repasse.
 
----
-
-## Checklist de Implementação
-
-- [ ] Conta Asaas criada (sandbox)
-- [ ] API key e token webhook configurados no .env
-- [ ] Endpoints Asaas mapeados (tokenizar cartão, pré-autorizar, capturar, estornar, criar subconta)
-- [ ] Vercel Cron configurado (job diário)
-- [ ] Webhook do Asaas implementado (idempotência)
-- [ ] BD preparada (coleções + índices)
-- [ ] Testes de fluxo de pagamento (sucesso, falha, retry, webhook duplicado)
-- [ ] Confirmação de taxas reais no sandbox (substituir estimativas)
-- [ ] Deploy em produção (com CNPJ + conta Asaas produção)
-- [ ] Testes de ponta a ponta (pedido → pré-auth → captura → split → saque)
-
----
-
-## Próximos Passos
-
-1. **Sandbox do Asaas:** confirmar taxa real de processamento (cartão à vista) e custo real de antecipação D+15; atualizar modelo financeiro
-2. **Advogado:** responsabilidade por danos/furtos, termos de uso, privacidade, contrato de adesão da prestadora
-3. **Contador:** nota fiscal sobre comissão, regime tributário, tratamento de prestadora pessoa física, retenções se houver
-4. **CNPJ e conta Asaas produção:** necessários para ir ao ar (sandbox é suficiente para testes)
+**Gate 3 aprovado pelo Jehu em 2026-09-04.** A sessão principal implementa `lib/asaas.ts` real seguindo `PAYMENT-IMPLEMENTATION.md` §2.

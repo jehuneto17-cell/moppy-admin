@@ -1,6 +1,7 @@
 "use client";
 
 import { signInWithEmailAndPassword } from "firebase/auth";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
@@ -43,58 +44,43 @@ export default function LoginPage() {
   }
 
   return (
-    <main style={{ minHeight: "100vh", background: "#F9FAFB", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Inter, sans-serif" }}>
-      <form
-        onSubmit={handleSubmit}
-        style={{ width: 400, background: "#fff", borderRadius: 8, padding: 32, boxShadow: "0 1px 3px rgba(0,0,0,0.1)", boxSizing: "border-box" }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{ width: 36, height: 36, borderRadius: 8, background: "#A78BFA" }} />
-          <h1 style={{ fontSize: 28, fontWeight: 700, color: "#1F2937", margin: 0 }}>Admin Moppy</h1>
+    <main className="flex min-h-screen items-center justify-center bg-surface">
+      <form onSubmit={handleSubmit} className="w-[400px] rounded-lg bg-white p-8 shadow-sm">
+        <div className="flex items-center gap-2.5">
+          <Image src="/logo.png" alt="Moppy" width={36} height={36} className="rounded-lg" />
+          <h1 className="text-[28px] font-bold text-ink">Admin Moppy</h1>
         </div>
 
-        <div style={{ marginTop: 28 }}>
-          <div style={{ marginBottom: 16 }}>
-            <label style={{ fontSize: 14, fontWeight: 500, color: "#1F2937", display: "block", marginBottom: 6 }}>E-mail</label>
+        <div className="mt-7">
+          <div className="mb-4">
+            <label className="mb-1.5 block text-sm font-medium text-ink">E-mail</label>
             <input
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="voce@moppy.com"
               required
-              style={inputStyle}
+              className="w-full rounded-md border border-border px-3 py-2.5 text-sm text-ink focus:outline-2 focus:outline-brand focus:outline-offset-2"
             />
           </div>
           <div>
-            <label style={{ fontSize: 14, fontWeight: 500, color: "#1F2937", display: "block", marginBottom: 6 }}>Senha</label>
+            <label className="mb-1.5 block text-sm font-medium text-ink">Senha</label>
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••"
               required
-              style={inputStyle}
+              className="w-full rounded-md border border-border px-3 py-2.5 text-sm text-ink focus:outline-2 focus:outline-brand focus:outline-offset-2"
             />
           </div>
 
-          {error && <p style={{ fontSize: 14, color: "#EF4444", margin: "12px 0 0 0" }}>{error}</p>}
+          {error && <p className="mt-3 text-sm text-danger">{error}</p>}
 
           <button
             type="submit"
             disabled={loading}
-            style={{
-              width: "100%",
-              height: 44,
-              marginTop: 24,
-              borderRadius: 8,
-              border: "none",
-              background: "#A78BFA",
-              color: "#fff",
-              fontSize: 14,
-              fontWeight: 500,
-              cursor: loading ? "not-allowed" : "pointer",
-              opacity: loading ? 0.6 : 1,
-            }}
+            className="mt-6 h-11 w-full rounded-lg bg-brand text-sm font-medium text-white transition-colors hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-60"
           >
             {loading ? "Entrando..." : "Entrar"}
           </button>
@@ -103,17 +89,6 @@ export default function LoginPage() {
     </main>
   );
 }
-
-const inputStyle: React.CSSProperties = {
-  width: "100%",
-  padding: "10px 12px",
-  border: "1px solid #E5E7EB",
-  borderRadius: 6,
-  fontSize: 14,
-  color: "#1F2937",
-  fontFamily: "inherit",
-  boxSizing: "border-box",
-};
 
 function mapError(e: any) {
   switch (e?.code) {

@@ -93,6 +93,8 @@ Toda a documentação de produto, arquitetura, banco de dados, fluxo de pagament
 | 2026-08-26 | Monorepo criado (apps/mobile, apps/web-admin, shared/) |
 | 2026-08-26 a 2026-08-27 | Ver histórico completo de commits deste repo e do moppy-mobile para o desenvolvimento pré-split (Etapa 8, Blocos 1–7) |
 | 2026-08-29 | Split do monorepo em 2 repositórios: `moppy-mobile` e `moppy-admin` (este). Firebase config, regras e `docs/fabrica/` centralizados aqui. `shared/` duplicado (era usado por 0 consumidores até aqui, custo do split é baixo) |
+| 2026-09-04 | Arquitetura de pagamento redesenhada por `fab-pagamentos`: pré-autorização de cartão é indisponível para a atividade econômica da Moppy no Asaas (restrição real confirmada no sandbox), então o modelo virou cobrança real em D-1 + estorno, sem subconta e sem `split[]`. `PAYMENT-PROFILE.md`, `PAYMENT-FLOW.md` e `PAYMENT-IMPLEMENTATION.md` reescritos; `PAYMENT-EDGE-CASES.md` com cabeçalho de correção. Nenhum código alterado — aguardando Gate 3 |
+| 2026-09-04 | **Gate 3 (Pagamento) aprovado pelo Jehu.** Etapa 8 liberada para a integração real do Asaas — ordem de implementação em `docs/fabrica/ESTADO.md` |
 
 ## Contatos & Referências
 

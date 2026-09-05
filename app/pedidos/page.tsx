@@ -1,9 +1,11 @@
 "use client";
 
-import { collection, doc, onSnapshot, orderBy, query, serverTimestamp, updateDoc } from "firebase/firestore";
+import { collection, onSnapshot, orderBy, query } from "firebase/firestore";
+import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useState } from "react";
 
 import { AdminShell } from "@/components/AdminShell";
+import { useStore } from "@/contexts/StoreContext";
 import { db } from "@/lib/firebase";
 
 type OrderRow = {
@@ -16,14 +18,14 @@ type OrderRow = {
   address: { city: string };
 };
 
-const STATUS_LABEL: Record<string, { label: string; bg: string; color: string }> = {
-  draft: { label: "Rascunho", color: "#374151", bg: "#F3F4F6" },
-  open: { label: "Aberto", color: "#6D28D9", bg: "#EDE9FE" },
-  confirmed: { label: "Agendado", color: "#1E40AF", bg: "#DBEAFE" },
-  in_progress: { label: "Em andamento", color: "#92400E", bg: "#FEF3C7" },
-  completed: { label: "Concluído", color: "#065F46", bg: "#D1FAE5" },
-  disputed: { label: "Em disputa", color: "#92400E", bg: "#FEF3C7" },
-  cancelled: { label: "Cancelado", color: "#991B1B", bg: "#FEE2E2" },
+const STATUS_LABEL: Record<string, { label: string; classes: string }> = {
+  draft: { label: "Rascunho", classes: "bg-gray-100 text-ink-soft" },
+  open: { label: "Aberto", classes: "bg-brand-tint-strong text-[#6D28D9]" },
+  confirmed: { label: "Agendado", classes: "bg-info-bg text-info-dark" },
+  in_progress: { label: "Em andamento", classes: "bg-warning-bg text-warning-dark" },
+  completed: { label: "Concluído", classes: "bg-success-bg text-success-dark" },
+  disputed: { label: "Em disputa", classes: "bg-warning-bg text-warning-dark" },
+  cancelled: { label: "Cancelado", classes: "bg-danger-bg text-danger-dark" },
 };
 
 function formatMoney(v: number) {
@@ -38,8 +40,11 @@ export default function PedidosPage() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const [reason, setReason] = useState("");
+  const [cancelledBy, setCancelledBy] = useState<"client" | "cleaner">("client");
+  const [cancelSubmitting, setCancelSubmitting] = useState(false);
   const [capturing, setCapturing] = useState(false);
   const [captureMsg, setCaptureMsg] = useState<string | null>(null);
+  const { showToast } = useStore();
 
   useEffect(() => {
     const q = query(collection(db, "orders"), orderBy("created_at", "desc"));
@@ -48,15 +53,27 @@ export default function PedidosPage() {
 
   const active = orders?.find((o) => o.id === activeId) ?? null;
 
+  // O pagamento já pode ter sido cobrado (D-1) — cancelar aqui precisa acionar
+  // estorno/compensação, não só marcar o pedido como cancelado no Firestore.
   async function handleCancel() {
     if (!active) return;
-    await updateDoc(doc(db, "orders", active.id), {
-      status: "cancelled",
-      cancellation: { cancelled_by: "system", cancelled_at: serverTimestamp(), cancellation_reason: reason },
-      updated_at: serverTimestamp(),
-    });
-    setCancelling(false);
-    setReason("");
+    setCancelSubmitting(true);
+    try {
+      const res = await fetch(`/api/orders/${active.id}/cancel`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason, cancelled_by: cancelledBy }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "falha ao cancelar");
+      showToast(`Pedido ${active.id.slice(0, 8)} cancelado (${data.paymentOutcome})`, "error");
+      setCancelling(false);
+      setReason("");
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "falha ao cancelar", "error");
+    } finally {
+      setCancelSubmitting(false);
+    }
   }
 
   async function handleCapture() {
@@ -66,9 +83,12 @@ export default function PedidosPage() {
     try {
       const res = await fetch(`/api/orders/${active.id}/capture`, { method: "POST" });
       const data = await res.json();
-      setCaptureMsg(res.ok ? "Pagamento capturado e repassado à faxineira." : data.error);
+      const msg = res.ok ? "Pagamento liberado e repassado à faxineira." : data.error;
+      setCaptureMsg(msg);
+      showToast(msg, res.ok ? "success" : "error");
     } catch {
       setCaptureMsg("Falha ao capturar pagamento.");
+      showToast("Falha ao capturar pagamento.", "error");
     } finally {
       setCapturing(false);
     }
@@ -76,17 +96,17 @@ export default function PedidosPage() {
 
   return (
     <AdminShell>
-      <h1 style={{ fontSize: 28, fontWeight: 700, color: "#1F2937", margin: "0 0 20px 0" }}>Pedidos</h1>
+      <h1 className="mb-5 text-[28px] font-bold text-ink">Pedidos</h1>
 
-      {orders === null && <p style={{ color: "#9CA3AF", fontSize: 14 }}>Carregando...</p>}
-      {orders?.length === 0 && <p style={{ color: "#6B7280", fontSize: 14, marginTop: 80, textAlign: "center" }}>Nenhum pedido ainda.</p>}
+      {orders === null && <p className="text-sm text-faint">Carregando...</p>}
+      {orders?.length === 0 && <p className="mt-20 text-center text-sm text-muted">Nenhum pedido ainda.</p>}
 
       {orders && orders.length > 0 && (
-        <div style={{ display: "flex", gap: 16 }}>
-          <div style={{ flex: 1, background: "#fff", borderRadius: 8, boxShadow: "0 1px 3px rgba(0,0,0,0.1)", overflow: "hidden" }}>
-            <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1.2fr 1.3fr 130px 110px", padding: "0 16px", borderBottom: "1px solid #E5E7EB", background: "#F9FAFB" }}>
+        <div className="flex gap-4">
+          <div className="flex-1 overflow-hidden rounded-lg bg-white shadow-sm">
+            <div className="grid grid-cols-[1.4fr_1.2fr_1.3fr_130px_110px] border-b border-border bg-surface px-4">
               {["ID", "Cidade", "Data", "Status", "Valor"].map((h) => (
-                <span key={h} style={{ fontSize: 14, fontWeight: 500, color: "#6B7280", height: 40, display: "flex", alignItems: "center" }}>
+                <span key={h} className="flex h-10 items-center text-sm font-medium text-muted">
                   {h}
                 </span>
               ))}
@@ -101,80 +121,97 @@ export default function PedidosPage() {
                     setActiveId(o.id);
                     setCancelling(false);
                   }}
-                  style={{ display: "grid", gridTemplateColumns: "1.4fr 1.2fr 1.3fr 130px 110px", padding: "0 16px", alignItems: "center", minHeight: 44, borderBottom: "1px solid #F3F4F6", background: isActive ? "#F3E8FF" : i % 2 ? "#F9FAFB" : "#fff", cursor: "pointer" }}
+                  className={`grid min-h-[44px] cursor-pointer grid-cols-[1.4fr_1.2fr_1.3fr_130px_110px] items-center border-b border-gray-100 px-4 transition-colors ${isActive ? "bg-brand-tint" : i % 2 ? "bg-surface hover:bg-gray-100" : "bg-white hover:bg-surface"}`}
                 >
-                  <span style={{ fontSize: 12, fontWeight: 500, color: "#A78BFA" }}>{o.id.slice(0, 8)}</span>
-                  <span style={{ fontSize: 12, color: "#1F2937" }}>{o.address?.city}</span>
-                  <span style={{ fontSize: 12, color: "#6B7280" }}>{formatDate(o.scheduled_at)}</span>
-                  <span style={{ fontSize: 11, fontWeight: 500, color: s.color, background: s.bg, borderRadius: 999, padding: "3px 10px", width: "fit-content" }}>{s.label}</span>
-                  <span style={{ fontSize: 12, fontWeight: 500, color: "#1F2937", textAlign: "right" }}>{formatMoney(o.pricing?.gross_total ?? 0)}</span>
+                  <span className="text-xs font-medium text-brand">{o.id.slice(0, 8)}</span>
+                  <span className="text-xs text-ink">{o.address?.city}</span>
+                  <span className="text-xs text-muted">{formatDate(o.scheduled_at)}</span>
+                  <span className={`w-fit rounded-full px-2.5 py-0.5 text-[11px] font-medium ${s.classes}`}>{s.label}</span>
+                  <span className="text-right text-xs font-medium text-ink">{formatMoney(o.pricing?.gross_total ?? 0)}</span>
                 </div>
               );
             })}
           </div>
 
-          {active && (
-            <div style={{ width: 380, background: "#fff", borderRadius: 8, boxShadow: "0 1px 3px rgba(0,0,0,0.1)", padding: 24, alignSelf: "flex-start" }}>
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <div>
-                  <p style={{ fontSize: 12, fontWeight: 500, color: "#A78BFA", margin: "0 0 4px 0" }}>{active.id.slice(0, 8)}</p>
-                  <h2 style={{ fontSize: 20, fontWeight: 700, color: "#1F2937", margin: 0 }}>{formatMoney(active.pricing?.gross_total ?? 0)}</h2>
-                  <p style={{ fontSize: 12, color: "#9CA3AF", margin: "4px 0 0 0" }}>{formatDate(active.scheduled_at)}</p>
-                </div>
-                <button onClick={() => setActiveId(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "#9CA3AF" }}>
-                  ✕
-                </button>
-              </div>
-
-              <p style={{ fontSize: 12, color: "#6B7280", marginTop: 16 }}>
-                Status atual: <strong>{(STATUS_LABEL[active.status] ?? STATUS_LABEL.draft).label}</strong>
-              </p>
-              <p style={{ fontSize: 12, color: "#6B7280" }}>Faxineira: {active.cleaner_id ? active.cleaner_id.slice(0, 8) : "nenhuma ainda"}</p>
-
-              {active.status === "confirmed" && (
-                <>
-                  <button
-                    onClick={handleCapture}
-                    disabled={capturing}
-                    style={{ width: "100%", height: 44, marginTop: 20, borderRadius: 8, border: "none", background: capturing ? "#C4B5FD" : "#A78BFA", color: "#fff", fontSize: 14, fontWeight: 700, cursor: capturing ? "not-allowed" : "pointer" }}
-                  >
-                    {capturing ? "Capturando..." : "Capturar pagamento"}
+          <AnimatePresence>
+            {active && (
+              <motion.div
+                initial={{ opacity: 0, x: 16 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 16 }}
+                transition={{ duration: 0.15 }}
+                className="w-[380px] self-start rounded-lg bg-white p-6 shadow-sm"
+              >
+                <div className="flex justify-between">
+                  <div>
+                    <p className="mb-1 text-xs font-medium text-brand">{active.id.slice(0, 8)}</p>
+                    <h2 className="text-xl font-bold text-ink">{formatMoney(active.pricing?.gross_total ?? 0)}</h2>
+                    <p className="mt-1 text-xs text-faint">{formatDate(active.scheduled_at)}</p>
+                  </div>
+                  <button onClick={() => setActiveId(null)} className="text-faint hover:text-ink">
+                    ✕
                   </button>
-                  {captureMsg && <p style={{ fontSize: 12, color: "#6B7280", marginTop: 8 }}>{captureMsg}</p>}
-                </>
-              )}
+                </div>
 
-              {!["completed", "cancelled"].includes(active.status) && (
-                <>
-                  {!cancelling && (
+                <p className="mt-4 text-xs text-muted">
+                  Status atual: <strong>{(STATUS_LABEL[active.status] ?? STATUS_LABEL.draft).label}</strong>
+                </p>
+                <p className="text-xs text-muted">Faxineira: {active.cleaner_id ? active.cleaner_id.slice(0, 8) : "nenhuma ainda"}</p>
+
+                {active.status === "confirmed" && (
+                  <>
                     <button
-                      onClick={() => setCancelling(true)}
-                      style={{ width: "100%", height: 44, marginTop: 20, borderRadius: 8, border: "1px solid #EF4444", background: "#fff", color: "#EF4444", fontSize: 14, fontWeight: 700, cursor: "pointer" }}
+                      onClick={handleCapture}
+                      disabled={capturing}
+                      className="mt-5 h-11 w-full rounded-lg bg-brand text-sm font-bold text-white transition-colors hover:bg-brand-hover disabled:cursor-not-allowed disabled:bg-[#A78BFA]"
                     >
-                      Cancelar pedido
+                      {capturing ? "Liberando..." : "Liberar pagamento"}
                     </button>
-                  )}
-                  {cancelling && (
-                    <div style={{ marginTop: 16 }}>
-                      <label style={{ fontSize: 12, fontWeight: 500, color: "#6B7280", display: "block", marginBottom: 6 }}>Motivo do cancelamento</label>
-                      <textarea
-                        value={reason}
-                        onChange={(e) => setReason(e.target.value)}
-                        style={{ width: "100%", height: 80, padding: 10, border: "1px solid #E5E7EB", borderRadius: 6, fontFamily: "inherit", fontSize: 14, boxSizing: "border-box", resize: "none" }}
-                      />
+                    {captureMsg && <p className="mt-2 text-xs text-muted">{captureMsg}</p>}
+                  </>
+                )}
+
+                {!["completed", "cancelled"].includes(active.status) && (
+                  <>
+                    {!cancelling && (
                       <button
-                        onClick={handleCancel}
-                        disabled={reason.trim().length < 5}
-                        style={{ width: "100%", height: 40, marginTop: 12, borderRadius: 8, border: "none", background: reason.trim().length < 5 ? "#FCA5A5" : "#EF4444", color: "#fff", fontSize: 14, fontWeight: 700, cursor: reason.trim().length < 5 ? "not-allowed" : "pointer" }}
+                        onClick={() => setCancelling(true)}
+                        className="mt-5 h-11 w-full rounded-lg border border-danger bg-white text-sm font-bold text-danger transition-colors hover:bg-danger-bg"
                       >
-                        Confirmar cancelamento
+                        Cancelar pedido
                       </button>
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-          )}
+                    )}
+                    {cancelling && (
+                      <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} className="mt-4">
+                        <label className="mb-1.5 block text-xs font-medium text-muted">Quem está cancelando</label>
+                        <select
+                          value={cancelledBy}
+                          onChange={(e) => setCancelledBy(e.target.value as "client" | "cleaner")}
+                          className="mb-3 w-full rounded-md border border-border p-2.5 font-sans text-sm"
+                        >
+                          <option value="client">Cliente</option>
+                          <option value="cleaner">Faxineira</option>
+                        </select>
+                        <label className="mb-1.5 block text-xs font-medium text-muted">Motivo do cancelamento</label>
+                        <textarea
+                          value={reason}
+                          onChange={(e) => setReason(e.target.value)}
+                          className="w-full resize-none rounded-md border border-border p-2.5 font-sans text-sm"
+                        />
+                        <button
+                          onClick={handleCancel}
+                          disabled={reason.trim().length < 5 || cancelSubmitting}
+                          className="mt-3 h-10 w-full rounded-lg bg-danger text-sm font-bold text-white transition-colors disabled:cursor-not-allowed disabled:bg-red-300"
+                        >
+                          {cancelSubmitting ? "Cancelando..." : "Confirmar cancelamento"}
+                        </button>
+                      </motion.div>
+                    )}
+                  </>
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       )}
     </AdminShell>

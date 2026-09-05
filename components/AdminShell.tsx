@@ -1,69 +1,64 @@
 "use client";
 
+import { motion } from "framer-motion";
+import { AlertTriangle, CheckCircle2, DollarSign, LayoutGrid, ListChecks, LogOut, Tag, Users } from "lucide-react";
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-const ICONS: Record<string, string> = {
-  grid: "M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z",
-  check: "M22 11.08V12a10 10 0 1 1-5.93-9.14M22 4 12 14.01l-3-3",
-  list: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01",
-  alert: "M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0ZM12 9v4M12 17h.01",
-  dollar: "M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6",
-  tag: "M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82zM7 7h.01",
-  users: "M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75",
-};
+import { useAuth } from "@/contexts/AuthContext";
 
 const NAV = [
-  { href: "/dashboard", label: "Dashboard", icon: "grid" },
-  { href: "/aprovacoes", label: "Aprovações", icon: "check" },
-  { href: "/pedidos", label: "Pedidos", icon: "list" },
-  { href: "/disputas", label: "Disputas", icon: "alert" },
-  { href: "/financeiro", label: "Financeiro", icon: "dollar" },
-  { href: "/precos", label: "Preços", icon: "tag" },
-  { href: "/usuarios", label: "Usuários", icon: "users" },
+  { href: "/dashboard", label: "Dashboard", Icon: LayoutGrid },
+  { href: "/aprovacoes", label: "Aprovações", Icon: CheckCircle2 },
+  { href: "/pedidos", label: "Pedidos", Icon: ListChecks },
+  { href: "/disputas", label: "Disputas", Icon: AlertTriangle },
+  { href: "/financeiro", label: "Financeiro", Icon: DollarSign },
+  { href: "/precos", label: "Preços", Icon: Tag },
+  { href: "/usuarios", label: "Usuários", Icon: Users },
 ];
 
 export function AdminShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const { user, signOut } = useAuth();
 
   return (
-    <div style={{ display: "flex", height: "100vh", background: "#F9FAFB", fontFamily: "Inter, sans-serif" }}>
-      <div style={{ width: 240, background: "#1F2937", display: "flex", flexDirection: "column", flexShrink: 0 }}>
-        <div style={{ padding: "20px 20px 12px 20px", display: "flex", alignItems: "center", gap: 10 }}>
-          <span style={{ fontSize: 18, fontWeight: 700, color: "#A78BFA" }}>Moppy</span>
-          <span style={{ fontSize: 18, fontWeight: 700, color: "#fff" }}>Admin</span>
+    <div className="flex h-screen bg-surface">
+      <div className="flex w-60 shrink-0 flex-col bg-sidebar print:hidden">
+        <div className="flex items-center gap-2.5 px-5 pt-5 pb-3">
+          <Image src="/logo.png" alt="Moppy" width={32} height={32} className="rounded-lg" />
+          <span className="text-lg font-bold text-white">Admin</span>
         </div>
-        <div style={{ flex: 1, padding: "12px 0", display: "flex", flexDirection: "column" }}>
-          {NAV.map((item) => {
-            const active = pathname?.startsWith(item.href);
+
+        <div className="flex flex-1 flex-col py-3">
+          {NAV.map(({ href, label, Icon }) => {
+            const active = pathname?.startsWith(href);
             return (
-              <Link
-                key={item.href}
-                href={item.href}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 12,
-                  padding: "11px 20px",
-                  borderLeft: `3px solid ${active ? "#A78BFA" : "transparent"}`,
-                  background: active ? "rgba(167,139,250,0.18)" : "transparent",
-                  color: active ? "#fff" : "#9CA3AF",
-                  fontSize: 14,
-                  fontWeight: active ? 700 : 400,
-                  textDecoration: "none",
-                }}
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={active ? "#fff" : "#9CA3AF"} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                  <path d={ICONS[item.icon]} />
-                </svg>
-                <span>{item.label}</span>
+              <Link key={href} href={href} className="relative flex items-center gap-3 py-[11px] pl-5 pr-5 text-sm">
+                {active && (
+                  <motion.div
+                    layoutId="nav-active"
+                    className="absolute inset-0 border-l-[3px] border-brand bg-brand/[0.18]"
+                    transition={{ type: "spring", stiffness: 400, damping: 32 }}
+                  />
+                )}
+                <Icon size={18} strokeWidth={2} className={`relative shrink-0 ${active ? "text-white" : "text-faint"}`} />
+                <span className={`relative ${active ? "font-bold text-white" : "font-normal text-faint"}`}>{label}</span>
               </Link>
             );
           })}
         </div>
+
+        <div className="border-t border-white/10 px-5 py-4">
+          {user?.email && <p className="mb-2 truncate text-xs text-faint">{user.email}</p>}
+          <button onClick={signOut} className="flex items-center gap-2 text-sm font-medium text-faint transition-colors hover:text-white">
+            <LogOut size={16} strokeWidth={2} />
+            Sair
+          </button>
+        </div>
       </div>
 
-      <div style={{ flex: 1, overflowY: "auto", padding: 32, boxSizing: "border-box" }}>{children}</div>
+      <div className="flex-1 overflow-y-auto p-8">{children}</div>
     </div>
   );
 }

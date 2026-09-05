@@ -1,5 +1,44 @@
 # Moppy — Casos de Borda do Fluxo de Pagamento
 
+> ## ⚠️ CORREÇÃO 2026-09-04 — LER ANTES DO RESTO DESTE DOCUMENTO
+>
+> O corpo abaixo foi escrito em 2026-08-23 assumindo **pré-autorização de cartão**, que **não está disponível** para a atividade econômica da Moppy no Asaas (restrição real, confirmada ao vivo no sandbox — ver `PAYMENT-PROFILE.md` §0). O modelo agora é **cobrança real em D-1 + estorno**.
+>
+> Onde o texto abaixo disser "pré-autorização", leia "cobrança"; onde disser "captura", leia "confirmação do serviço" (que não chama o Asaas — o dinheiro já está na conta da Moppy). Este documento ainda **não foi reescrito** — é a próxima dívida de documentação depois do Gate 3.
+>
+> ### Delta por caso
+>
+> | Caso | Situação |
+> |---|---|
+> | 1. Cartão vencido | ✅ Vale. Só troque `preauth_failed` por `charge_failed` |
+> | 2. Limite insuficiente | ✅ Vale, mesma troca de nome |
+> | 3. Bloqueio de fraude | ✅ Vale, mesma troca de nome |
+> | 4. Webhook não chega | ✅ Vale. O cron de reconciliação passa a se chamar `/api/cron/reconcile` |
+> | 5. Webhook duplicado | ✅ Vale integralmente |
+> | 6. Cancelamento durante a captura | ⚠️ Vira "cancelamento durante a cobrança". O risco de corrida agora é entre **cancelar e cobrar**, e o pior caso é cobrar um pedido já cancelado (resolve-se com estorno imediato) |
+> | 7. Faxineira cancela antes de D-1 | ✅ Vale (nada cobrado ainda) |
+> | 8. Faxineira cancela +12h antes | ⚠️ Se a cobrança já saiu, é **estorno total**, não "desfazer hold". App absorve a taxa perdida |
+> | 9. Faxineira cancela −12h | ⚠️ Idem: estorno total ao cliente + penalidade de score |
+> | 10. Cliente cancela −12h | ⚠️ Regra nova: retém 30% da base **integrais** para a faxineira (sem comissão, sem rateio de taxa) e estorna o resto. Ver `PAYMENT-FLOW.md` §5.3 |
+> | 11. Faxineira não aparece (no-show) | ⚠️ Agora exige **estorno total** de dinheiro já cobrado, não apenas "não capturar" |
+> | 11b. Chegada bloqueada (GPS falha) | ✅ Vale (é fluxo operacional, não financeiro) |
+> | 12. Captura falha | ❌ **Morto.** Não existe captura. O equivalente é "cobrança recusada em D-1", já coberto pelos casos 1-3 |
+> | 13. Estorno falha | 🔺 **Ganhou importância.** Antes era raro; agora é o caminho de volta de todo cancelamento e disputa. Ver `PAYMENT-FLOW.md` §4.4 |
+> | 14. Cliente cancela após a captura | ⚠️ Reescrever: qualquer cancelamento **após a cobrança** é possível, mas vira estorno (total ou parcial). Só depois do serviço executado é que vira disputa |
+> | 15. Disputa com dinheiro já sacado | ✅ Vale. Fica mais provável, porque agora existe também chargeback bancário |
+> | 16. Chave PIX inválida | ✅ Vale. Só troque `POST /dict/transferValue` por `POST /v3/transfers` |
+> | 17. Pré-autorização expira | ❌ **Morto.** Não há hold para expirar |
+> | 18. Split falha (subconta) | ❌ **Morto.** Não há subconta nem `split[]` — a divisão é contábil no Firestore |
+> | 19. Faxineira suspensa antes do saque | ✅ Vale integralmente |
+> | 20. Múltiplas pré-autorizações no mesmo cartão | ⚠️ Vira "múltiplas cobranças no mesmo cartão". Mais simples: cada cobrança é um débito definitivo, não um bloqueio de limite. O risco novo é **cobrança duplicada do mesmo pedido**, coberto em `PAYMENT-FLOW.md` §4.3 |
+> | **21. Chargeback (NOVO)** | 🆕 Não existia neste documento. Cliente contesta no banco. Ver `PAYMENT-FLOW.md` §4.7 |
+> | **22. Cobrança duplicada (NOVO)** | 🆕 Cron rodando 2× cobra o cliente 2×. Três barreiras de idempotência em `PAYMENT-IMPLEMENTATION.md` §3 |
+> | **23. Estorno duplicado (NOVO)** | 🆕 Admin clica 2× em "reembolso total". `runRefund` hoje **não tem guarda** — correção obrigatória |
+> | **24. Pedido confirmado com <24h (NOVO)** | 🆕 O cron D-1 nunca o alcança. Cobrança tem que sair na confirmação |
+
+---
+
+
 ---
 
 ## 1. Cartão Vencido

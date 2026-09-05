@@ -1,12 +1,6 @@
-import { getFirestore } from "firebase-admin/firestore";
-import { getAuth } from "firebase-admin/auth";
 import { NextRequest, NextResponse } from "next/server";
 
-import { initializeFirebaseAdmin } from "@/lib/firebase-admin";
-
-initializeFirebaseAdmin();
-const db = getFirestore();
-const auth = getAuth();
+import { adminAuth as auth, adminDb as db } from "@/lib/firebase-admin";
 
 const EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send";
 

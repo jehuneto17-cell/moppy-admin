@@ -1,28 +1,56 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { adminDb } from "@/lib/firebase-admin";
 import { isEventProcessed, logPaymentEvent, pushPaymentStatus } from "@/lib/payments";
 
-// Endpoint real do Asaas (Etapa 9). Enquanto o mock resolve tudo na hora (cron chama
-// o processamento direto), este endpoint existe pra já estar pronto e testável via
-// curl/script — idempotência por event_id, mesmo formato de payload esperado depois.
+// O Asaas autentica o webhook devolvendo, em todo POST, o header `asaas-access-token`
+// com o valor configurado no cadastro — não é `authorization: Bearer` (esse era o
+// payload inventado do desenho antigo, ver PAYMENT-FLOW.md §3.2).
 export async function POST(req: NextRequest) {
-  const auth = req.headers.get("authorization");
-  if (auth !== `Bearer ${process.env.ASAAS_WEBHOOK_SECRET}`) {
+  if (req.headers.get("asaas-access-token") !== process.env.ASAAS_WEBHOOK_TOKEN) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
   const body = await req.json();
-  const { event_id, order_id, type, status, asaas_response } = body ?? {};
-  if (!event_id || !order_id || !status) {
+  const { id: eventId, event, payment } = body ?? {};
+  if (!eventId || !event || !payment?.externalReference) {
     return NextResponse.json({ error: "payload inválido" }, { status: 400 });
   }
 
-  if (await isEventProcessed(order_id, event_id)) {
+  const orderId = payment.externalReference;
+  if (await isEventProcessed(orderId, eventId)) {
     return NextResponse.json({ status: "already_processed" });
   }
 
-  await logPaymentEvent(order_id, { type: type ?? "webhook", status: "success", asaas_event_id: event_id, asaas_response });
-  await pushPaymentStatus(order_id, status, { last_webhook_status: status });
+  await logPaymentEvent(orderId, { type: "webhook", status: "success", asaas_event_id: eventId, asaas_response: payment });
+
+  switch (event) {
+    case "PAYMENT_CONFIRMED":
+      await pushPaymentStatus(orderId, "charge_success");
+      break;
+    case "PAYMENT_RECEIVED":
+      // Liquidação na conta (D+30 ou antecipada) — só registra, não muda o estado do pedido.
+      break;
+    case "PAYMENT_REFUNDED": {
+      const current = (await adminDb.collection("payments").doc(orderId).get()).data();
+      if (current?.status === "refund_pending") {
+        await pushPaymentStatus(orderId, current.split ? "partial_refund" : "refunded");
+      }
+      break;
+    }
+    case "PAYMENT_CHARGEBACK_REQUESTED":
+      await pushPaymentStatus(orderId, "chargeback_requested");
+      // Congela o saldo desse pedido: marca o crédito da carteira como não liberável
+      // mesmo se D+15 já tiver passado. A trava real é o cron release-balance
+      // checar esse campo antes de mover pending_release → available.
+      await adminDb.collection("payments").doc(orderId).set({ balance_frozen: true }, { merge: true });
+      break;
+    case "PAYMENT_DELETED":
+      // Cobrança removida do lado do Asaas — reconcilia no próximo /api/cron/reconcile.
+      break;
+    default:
+      break;
+  }
 
   return NextResponse.json({ status: "processed" });
 }

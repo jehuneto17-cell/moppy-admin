@@ -11,8 +11,7 @@
 | **Backend Serverless** | Node.js em `/api` (Vercel) | 18+ | Pagamentos, webhooks, jobs agendados (Cron) |
 | **Autenticação** | Firebase Auth | — | Email/senha + login com Google (mobile) |
 | **Banco de Dados** | Firestore (Firebase) | — | NoSQL tempo real, segurança rule-based, escalável |
-| **Armazenamento Mídia** | Cloudinary (imagens públicas) | — | Otimização automática, CDN global |
-| **Armazenamento Sensível** | Firebase Storage (documentos KYC) | — | Seguro, chave privada, não expõe URLs |
+| **Armazenamento Mídia** | Cloudinary (todas as imagens, incl. KYC/disputas) | — | CDN global; docs sensíveis via delivery type `authenticated` + URL assinada (evita depender do Firebase Storage/Blaze) |
 | **Gateway de Pagamento** | Asaas | — | PIX/Cartão, split automático, webhooks confiáveis |
 | **Notificações Push** | Firebase Cloud Messaging (FCM) | — | Integrado com Firebase Auth, suporte iOS/Android |
 | **Hosting Mobile** | EAS Build (Expo) | — | CI/CD gerenciado, TestFlight/Play Store |
@@ -446,7 +445,7 @@ EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=123456789
 EXPO_PUBLIC_FIREBASE_APP_ID=1:123456789:web:abc123def456
 
 EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME=moppy-cloud
-EXPO_PUBLIC_GOOGLE_MAPS_API_KEY=AIza...
+EXPO_PUBLIC_MAPBOX_TOKEN=pk...
 
 EXPO_PUBLIC_API_URL=https://moppy-admin.vercel.app
 
@@ -548,21 +547,21 @@ FIRESTORE_EMULATOR_HOST=localhost:8080
 ├──────────────────────┤   ├───────────────┤   ├─────────────────────┤
 │                      │   │               │   │                     │
 │ Firestore (NoSQL)    │   │ Asaas API     │   │ Cloudinary          │
-│ ├─ Users             │   │ ├─ Authorize  │   │ (Image Optimization)│
-│ ├─ Orders            │   │ ├─ Capture    │   │                     │
-│ ├─ Payments          │   │ ├─ Refund     │   │ Google Maps API     │
-│ ├─ Cleaners          │   │ ├─ Transfers  │   │ (Geocoding)         │
-│ ├─ Disputes          │   │ └─ Webhooks   │   │                     │
-│ ├─ Chat              │   │               │   │ FCM                 │
-│ └─ Wallets           │   │               │   │ (Push Notifications)│
+│ ├─ Users             │   │ ├─ Authorize  │   │ ├─ Image Optimization│
+│ ├─ Orders            │   │ ├─ Capture    │   │ ├─ KYC Docs (auth)  │
+│ ├─ Payments          │   │ ├─ Refund     │   │ └─ Dispute Photos   │
+│ ├─ Cleaners          │   │ ├─ Transfers  │   │                     │
+│ ├─ Disputes          │   │ └─ Webhooks   │   │ Mapbox                 │
+│ ├─ Chat              │   │               │   │ (Maps + Geo)         │
+│ └─ Wallets           │   │               │   │                     │
+│                      │   │               │   │ FCM                 │
+│ Firebase Auth        │   │               │   │ (Push Notifications)│
+│ ├─ Email/Password    │   │               │   │                     │
+│ └─ Sessions          │   │               │   │ Sentry              │
+│                      │   │               │   │ (Error Tracking)    │
 │                      │   │               │   │                     │
-│ Firebase Auth        │   │               │   │ Sentry              │
-│ ├─ Email/Password    │   │               │   │ (Error Tracking)    │
-│ └─ Sessions          │   │               │   │                     │
-│                      │   │               │   │                     │
-│ Firebase Storage     │   │               │   │ GitHub              │
-│ ├─ KYC Docs          │   │               │   │ (Code + CI/CD)      │
-│ └─ Dispute Photos    │   │               │   │                     │
+│                      │   │               │   │ GitHub              │
+│                      │   │               │   │ (Code + CI/CD)      │
 │                      │   │               │   │                     │
 └──────────────────────┘   └───────────────┘   └─────────────────────┘
 ```
@@ -580,8 +579,8 @@ FIRESTORE_EMULATOR_HOST=localhost:8080
 - [x] **Pagamento:** Asaas (com webhook)
 - [x] **Cron:** Vercel Cron
 - [x] **Push:** Firebase Cloud Messaging
-- [x] **Mídia:** Cloudinary + Firebase Storage
-- [x] **Geo:** Google Maps API
+- [x] **Mídia:** Cloudinary (público + docs sensíveis via `authenticated`)
+- [x] **Geo:** Mapbox (mapa mobile + geocoding)
 - [x] **Logging:** Sentry + Firebase Analytics
 - [x] **CI/CD:** GitHub Actions + Vercel
 
