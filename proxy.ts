@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { adminAuth } from "@/lib/firebase-admin";
 
-const PUBLIC_PATHS = ["/login"];
+const PUBLIC_PATHS = ["/login", "/privacidade"];
 
 // O app mobile chama essas rotas de outra origem (Expo web em localhost:8081, e o
 // build nativo em produção não manda Origin nenhum). Sem isso o navegador bloqueia
