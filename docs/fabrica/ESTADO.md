@@ -236,3 +236,7 @@ Pedido do Jehu: subir o admin na Vercel pra testar e, em paralelo, preparar o mo
 - **Achado no meio do caminho:** a página voltava 307 redirecionando pra `/login` mesmo sendo uma rota nova — o Next.js 16 renomeou `middleware.ts` pra `proxy.ts` (existia `proxy.ts` na raiz do projeto, não documentado em nenhum lugar até agora) e ele barra qualquer rota fora de uma allowlist (`PUBLIC_PATHS`). Adicionado `/privacidade` na lista. Testado local (200) antes de gastar outro deploy.
 - `docs/fabrica/PLAY-STORE-LISTING.md`: rascunho completo da ficha da loja — nome, descrições curta/completa, categoria sugerida, tabela de Data Safety baseada nos dados reais coletados, link da política acima. **O que só o Jehu resolve:** conta de developer Google Play (US$25), capturas de tela reais do app, gráfico de destaque (arte 1024x500), preencher o questionário oficial de classificação de conteúdo dentro da própria Play Console.
 
+**2026-09-05 — Checklist pra migrar o Asaas de sandbox pra produção**
+- Jehu avisou que o cliente (dono da Moppy) ainda vai criar a conta de produção do Asaas — precisa de CNPJ, que ainda não existe.
+- `docs/fabrica/ASAAS-PRODUCAO-CHECKLIST.md`: o que pegar com o cliente assim que a conta existir (API Key de produção, conta bancária vinculada), o que trocar no código/Vercel (`ASAAS_BASE_URL` pra `api.asaas.com`, `ASAAS_API_KEY`, recriar o webhook com token novo), e o que reconfirmar com dinheiro real depois (Cenário 12 — taxa real pode divergir da sandbox; um pedido ponta a ponta de verdade antes de anunciar o app).
+
