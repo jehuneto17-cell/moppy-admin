@@ -246,3 +246,13 @@ Pedido do Jehu: subir o admin na Vercel pra testar e, em paralelo, preparar o mo
 - **Corrigido:** trocado `Mapbox.PointAnnotation` por `Mapbox.MarkerView` em `AddressMapPreview.tsx` — existe nos dois builds (nativo e web) com a mesma API (`coordinate` + `children`). Mapa continua aparecendo normalmente nos dois ambientes, não precisou desligar nada na web. `npx tsc --noEmit` sem novos erros (só os 3 pré-existentes de typed routes).
 - **Não testado ainda:** confirmar visualmente na web publicada (`moppy-mobile.vercel.app`) e num build nativo depois do deploy — só validado por leitura de código (incluindo o source do `@rnmapbox/maps`) + typecheck nesta sessão.
 
+**2026-09-13 — Feature: CEP preenche cidade/UF/rua/bairro automaticamente**
+- Pedido do Jehu: ao digitar o CEP no cadastro de endereço, preencher os outros campos sozinho.
+- Criado `moppy-mobile/src/services/cep.ts` — busca no ViaCEP (gratuito, sem chave) quando o CEP completa 8 dígitos; melhor-esforço, não trava a tela se o CEP não existir ou a API cair. Ligado nas duas telas (`(client-onboarding)/endereco.tsx` e `(client)/criar-pedido/endereco.tsx`).
+
+**2026-09-13 — Bug real: tela quebrava com "Unexpected end of JSON input" ao salvar cartão**
+- Jehu reportou, testando o cadastro de cartão pela web: `POST /api/cards/tokenize` voltava 500 e o app quebrava tentando ler a resposta como JSON.
+- **Causa raiz:** em `app/api/cards/tokenize/route.ts`, a chamada `asaas.createCustomer()` (primeiro cartão do cliente) ficava **fora** do `try/catch` — só `tokenizeCard()` estava protegida. Se o Asaas recusa criar o cliente (CPF inválido, etc.), a exceção sobe sem tratamento e o Next.js responde 500 com corpo vazio; o `res.json()` do mobile (`src/services/asaas.ts`) quebra tentando parsear isso, mascarando o erro real do Asaas.
+- **Corrigido:** as duas chamadas ao Asaas agora ficam no mesmo `try/catch`, sempre devolvendo JSON com o motivo real (e logando no servidor com `console.error`). No mobile, `src/services/asaas.ts` também ganhou uma segunda camada de proteção (`res.json().catch(() => null)`), pra nunca mais quebrar com corpo vazio mesmo se aparecer outro caminho de erro no futuro.
+- **Ainda não confirmado:** qual foi o motivo exato da recusa do Asaas no teste do Jehu (CPF `22311554296` sem formatação) — agora que o erro real volta no JSON em vez de sumir, da próxima vez que acontecer dá pra ver a mensagem exata na tela/console em vez de só "Unexpected end of JSON input".
+
