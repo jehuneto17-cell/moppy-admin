@@ -43,20 +43,20 @@ export async function POST(req: NextRequest) {
   }
 
   let asaasCustomerId: string | undefined = user?.asaas_customer_id;
-  if (!asaasCustomerId) {
-    const customer = await asaas.createCustomer({
-      name: holderName,
-      cpfCnpj: finalCpf,
-      email: email ?? user?.email ?? "",
-      mobilePhone: finalPhone,
-    });
-    asaasCustomerId = customer.id;
-  }
-
   const remoteIp = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "127.0.0.1";
 
   let tokenized;
   try {
+    if (!asaasCustomerId) {
+      const customer = await asaas.createCustomer({
+        name: holderName,
+        cpfCnpj: finalCpf,
+        email: email ?? user?.email ?? "",
+        mobilePhone: finalPhone,
+      });
+      asaasCustomerId = customer.id;
+    }
+
     tokenized = await asaas.tokenizeCard({
       customer: asaasCustomerId,
       remoteIp,
@@ -71,6 +71,7 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (e) {
+    console.error("[cards/tokenize] falha ao falar com o Asaas:", e);
     return NextResponse.json({ error: e instanceof Error ? e.message : "falha ao tokenizar cartão" }, { status: 400 });
   }
 
