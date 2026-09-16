@@ -336,3 +336,10 @@ Pedido do Jehu: subir o admin na Vercel pra testar e, em paralelo, preparar o mo
 - **Não testado visualmente** — falta abrir o Chrome/Edge (desktop ou Android) depois do deploy e confirmar que aparece o ícone/prompt de "Instalar app".
 - **De passagem, achado sem mexer:** `firestore.indexes.json` está com uma mudança não commitada (2 índices novos em `orders`, por `client_id` e `cleaner_id` + `scheduled_at`) de uma sessão anterior — não é desta tarefa, deixei como está, só registrando pra não se perder.
 
+**2026-09-16 — Bug real: rótulos da barra de navegação da faxineira cortando ("Age...", "Cart...")**
+- Jehu mandou print da tela "Buscar" (feed de pedidos da faxineira): na barra de baixo, "Agenda" e "Carteira" apareciam cortados com reticências.
+- **Causa raiz:** `app/(cleaner)/_layout.tsx` usava `tabBarLabelPosition: "beside-icon"` (ícone ao lado do texto, não em cima) — com 4 abas isso sobra pouco espaço horizontal por aba, e os dois rótulos mais compridos não cabiam. "Buscar" e "Perfil" (mais curtos) cabiam, por isso só 2 das 4 abas pareciam quebradas.
+- **Corrigido:** removida a opção, volta pro padrão (ícone em cima, texto embaixo) — cada aba usa a largura inteira só pro texto. `app/(client)/_layout.tsx` usa a mesma opção mas só tem 2 abas (Home/Perfil, nomes curtos) — não reportado como quebrado, não mexido.
+- `tsc --noEmit` limpo. Deploy feito (commit `8133ed8`).
+- **Reparado de passagem, não corrigido:** a mesma screenshot mostra "0.0 km" nos dois pedidos do feed — pode ser real (endereço de teste igual ao da faxineira) ou bug no cálculo de distância (`distanceKm` em `src/utils/geo.ts`, usado em `buscar.tsx:168-170`). Não investigado a fundo nesta sessão — Jehu não confirmou se é esperado ou não.
+
