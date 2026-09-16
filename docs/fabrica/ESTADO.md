@@ -313,3 +313,13 @@ Pedido do Jehu: subir o admin na Vercel pra testar e, em paralelo, preparar o mo
 - **Corrigido:** removido o `maxHeight` — a tela inteira já é um `ScrollView`, a caixa não precisava de altura fixa, só cresce com o conteúdo agora. `tsc --noEmit` limpo. Deploy feito (commit `9cbdc48`).
 - **Não confirmado visualmente ainda** — Jehu vai testar no celular de novo.
 
+**2026-09-16 — Bug real: e-mail em branco no painel de aprovação + fotos abrindo em aba nova**
+- Jehu mandou print do painel de aprovação: a coluna "E-mail" (e o avatar de iniciais) apareciam vazios, e clicar em "Ver foto" saía da tela do admin.
+- **Causa raiz do e-mail:** `email` só é salvo em `users/{uid}` (no cadastro, `useAuth.ts`). O documento `cleaners/{uid}` (criado em `termos.tsx`, fim do onboarding de faxineira) nunca gravava esse campo, e `app/aprovacoes/page.tsx` lê `row.email` direto do `cleaners/{uid}` — sempre `undefined`.
+- **Corrigido na origem:** `termos.tsx` agora grava `email: user.email` junto no `setDoc` de `cleaners/{uid}`. Vale só pra cadastros novos daqui pra frente.
+- **Cadastro pendente já existente no banco (o da screenshot do Jehu) corrigido manualmente**, com autorização explícita: script único (`firebase-admin`, rodado localmente com o `.env.local` do admin, apagado depois) que olhou todo `cleaners` com `approval_status: pending` sem `email` e copiou de `users/{uid}.email`. Só 1 doc encontrado (`5py8rsPsPRPiM4UMngHKD2XB3Om2`), email preenchido (`jehuneto01@gmail.com`) — nenhum outro campo tocado.
+- **Corrigido também:** o link "Ver foto" (feature de mais cedo hoje) usava `<a target="_blank">`, tirando o admin do painel. Trocado por um modal (`<iframe>` — funciona pra imagem e PDF sem precisar detectar o tipo) que abre por cima da própria tela, com botão "✕ Fechar".
+- `tsc --noEmit` limpo nos dois repos. Deploy feito (`moppy-mobile` commit `6c4be84`, `moppy-admin` commit `b5544ad`). Não testado visualmente ainda.
+
+**Próximo pedido do Jehu, ainda não iniciado:** transformar o `moppy-admin` num PWA instalável ("baixável").
+
