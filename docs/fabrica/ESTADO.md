@@ -300,3 +300,10 @@ Pedido do Jehu: subir o admin na Vercel pra testar e, em paralelo, preparar o mo
 - **Corrigido:** cada linha de documento enviado agora é um link (`<a target="_blank">`) que abre `storage_url` numa aba nova — a URL assinada no upload não expira (Cloudinary `sign_url` sem `auth_token`/`expires_at`), então não precisou gerar assinatura nova na hora de exibir. Sem dependência nova, sem modal customizado. `tsc --noEmit` limpo. Deploy feito (commit `9351582`).
 - **Não testado visualmente ainda** — precisaria de um cadastro de faxineira pendente de verdade + login de admin pra confirmar que o link abre a imagem certa.
 
+**2026-09-16 — Feature: comprovante de endereço aceita PDF (moppy-mobile)**
+- Jehu pediu: no passo "Comprovante de endereço", dar a opção de mandar PDF além de foto.
+- Instalado `expo-document-picker` (`npx expo install`, resolveu versão compatível com Expo SDK 57 sozinho). Adicionado `handlePickPdf` em `documentos.tsx`, com um link "ou enviar um PDF" que só aparece nesse passo (`allowPdf: true` no step) — os outros 3 passos continuam só câmera.
+- `uploadImage()` (`src/services/cloudinary.ts`) ganhou um parâmetro `mimeType` (default `image/jpeg`) — antes sempre mandava `image/jpeg`/`upload.jpg` fixo pro backend, mesmo quando o arquivo era outra coisa. Agora tanto o caminho nativo quanto o web (que já usava blob real) mandam o tipo/extensão certos.
+- **Nenhuma mudança no backend** — `lib/cloudinary.ts` já sobe com `resource_type: "image"`, que o Cloudinary aceita pra PDF também (gera preview por página); o link "Ver foto" do painel de aprovação (feature de hoje, acima) funciona igual pra PDF, só abre o arquivo na aba.
+- `tsc --noEmit` limpo. Deploy feito (commit `128f7e7`). **Não testado visualmente** — nem a escolha do arquivo pela UI nem a abertura do PDF no painel de aprovação foram exercitadas de verdade nesta sessão.
+
