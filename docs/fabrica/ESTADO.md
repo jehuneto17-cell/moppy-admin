@@ -268,3 +268,18 @@ Pedido do Jehu: subir o admin na Vercel pra testar e, em paralelo, preparar o mo
 - **Não atualizado ainda:** `PAYMENT-PROFILE.md`/`PAYMENT-FLOW.md` ainda citam os números antigos (3%, exemplo R$150→R$152,53) — só o código foi corrigido nesta sessão.
 - **Sandbox pode divergir de produção:** reconferir a taxa real na primeira cobrança de produção de verdade (`ASAAS-PRODUCAO-CHECKLIST.md`), como já estava planejado.
 
+**2026-09-16 — Bug real: upload de foto no cadastro de faxineira (KYC) não funcionava na web**
+- Jehu reportou: no cadastro de faxineira, tirava a foto do documento mas ao confirmar "nada mudava" — a tela voltava pro estado inicial sem erro nenhum. Testando pelo `moppy-mobile.vercel.app`.
+- **Causa raiz:** `src/services/cloudinary.ts` (`uploadImage`) montava o `FormData` só no formato `{uri, name, type}`, que é o truque específico do polyfill de `fetch` do React Native pra converter um `file://` local em multipart. No build web (`react-native-web`), `FormData.append` exige um `Blob`/`File` de verdade — o objeto plano vira a string `"[object Object]"`, e o backend (`app/api/media/upload/route.ts`, que checa `file instanceof File`) rejeita com 400. Como `documentos.tsx` não tinha `catch` na chamada de upload, o erro sumia — a etapa só resetava pro estado "não enviado", parecendo que não tinha acontecido nada.
+- **Confirmado com curl contra a API real** (não só lendo código): POST com `file` como string → 400 "file e folder são obrigatórios" (reproduz o bug antigo); POST com um PNG real como `Blob` → 200 com URL do Cloudinary (confirma que o fix funciona e que o backend sempre esteve certo).
+- **Corrigido:** `cloudinary.ts` agora detecta `Platform.OS === "web"` e converte o `localUri` num `Blob` de verdade via `fetch(localUri).then(r => r.blob())` antes de anexar no `FormData`; no nativo continua usando o formato antigo. `documentos.tsx` ganhou `catch` + mensagem de erro visível (`Alert`) pra próxima falha não ficar mais silenciosa.
+- Deploy feito (`moppy-mobile` no Vercel, commit `a408087`). Não testado ainda ponta a ponta pela UI real com câmera (a verificação foi via `tsc --noEmit` limpo + teste direto do endpoint com curl usando um usuário de teste autenticado) — falta confirmar visualmente no navegador com uma câmera de verdade.
+
+**2026-09-16 — Bug real: botões "Sair" e "Excluir conta" não respondiam no perfil (web)**
+- Jehu notou, testando o mesmo deploy, que alguns botões do perfil "não respondiam".
+- **Causa raiz:** `src/components/ui/ProfileFooterActions.tsx` usava `Alert.alert(...)` do React Native puro (importado de `"react-native"`, não o componente `Alert` próprio do projeto) — `react-native-web` não implementa esse dialog nativo, então o clique não fazia nada visível, e a confirmação/logout (que só rodava dentro do callback do botão do Alert) nunca disparava.
+- **Corrigido:** `Platform.OS === "web"` agora cai pra `window.confirm`/`window.alert` do navegador; nativo continua usando `Alert.alert`. É o único lugar do app que usava `Alert.alert` (`grep` confirmou). Deploy feito (commit `e4ff838`).
+- **Não testado no navegador ainda** (o fluxo dispara um `confirm()` real do navegador, que trava a automação usada nesta sessão) — só validado por leitura de código + `tsc --noEmit` limpo. Pendente Jehu confirmar visualmente.
+
+**Conta de teste criada durante essa investigação:** `moppy.teste.faxineira@gmail.com` (Firebase Auth + Firestore, role faxineira, sem documentos KYC de verdade — só 2 uploads de teste no Cloudinary em `Moppy/kyc/id_document/`, pode apagar). Não excluída ainda — perguntar ao Jehu se quer manter pra testes futuros ou remover.
+
