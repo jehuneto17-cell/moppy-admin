@@ -16,8 +16,8 @@ type PendingCleaner = {
 };
 
 const DOC_LABELS: Record<string, string> = {
-  id_document: "RG/CNH",
-  cpf_document: "CPF",
+  id_document: "RG/CNH (frente)",
+  cpf_document: "RG/CNH (verso) + CPF",
   selfie: "Selfie",
   address_proof: "Comprovante de endereço",
 };
