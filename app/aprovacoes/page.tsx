@@ -34,6 +34,7 @@ export default function AprovacoesPage() {
   const [reason, setReason] = useState("");
   const [confirming, setConfirming] = useState<"approve" | "reject" | null>(null);
   const [viewingUrl, setViewingUrl] = useState<string | null>(null);
+  const [viewingIsFile, setViewingIsFile] = useState(false);
   const { showToast } = useStore();
 
   useEffect(() => {
@@ -143,7 +144,14 @@ export default function AprovacoesPage() {
                       </div>
                     );
                     return docEntry ? (
-                      <button key={key} onClick={() => setViewingUrl(docEntry.storage_url)} className="text-left">
+                      <button
+                        key={key}
+                        onClick={() => {
+                          setViewingUrl(docEntry.storage_url);
+                          setViewingIsFile(false);
+                        }}
+                        className="text-left"
+                      >
                         {row}
                       </button>
                     ) : (
@@ -202,14 +210,24 @@ export default function AprovacoesPage() {
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-8"
           onClick={() => setViewingUrl(null)}
         >
-          <div className="relative h-full w-full max-w-3xl" onClick={(e) => e.stopPropagation()}>
+          <div className="relative flex max-h-full max-w-full flex-col items-center" onClick={(e) => e.stopPropagation()}>
             <button
               onClick={() => setViewingUrl(null)}
               className="absolute -top-10 right-0 text-lg text-white hover:opacity-80"
             >
               ✕ Fechar
             </button>
-            <iframe src={viewingUrl} className="h-full w-full rounded-lg bg-white" />
+            {viewingIsFile ? (
+              <iframe src={viewingUrl} className="h-[80vh] w-[80vw] max-w-3xl rounded-lg bg-white" />
+            ) : (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={viewingUrl}
+                alt="Documento"
+                onError={() => setViewingIsFile(true)}
+                className="max-h-[85vh] max-w-full rounded-lg bg-white object-contain"
+              />
+            )}
           </div>
         </div>
       )}
