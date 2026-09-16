@@ -327,5 +327,12 @@ Pedido do Jehu: subir o admin na Vercel pra testar e, em paralelo, preparar o mo
 - **Corrigido:** trocado por `<img>` com `object-contain` e `max-h-[85vh] max-w-full` — encolhe mantendo proporção, sem cortar. O `<iframe>` continua existindo só como fallback (`onError` da `<img>`, dispara se `storage_url` não for uma imagem de verdade — ex. PDF do comprovante de endereço).
 - `tsc --noEmit` limpo. Deploy feito (commit `0742143`).
 
-**Próximo pedido do Jehu, ainda não iniciado:** transformar o `moppy-admin` num PWA instalável ("baixável").
+**2026-09-16 — Feature: moppy-admin virou PWA instalável**
+- Jehu pediu pra poder "baixar" o admin como app. Usada a logo que já existia (`public/logo.png`, 1254x1254) — redimensionada com Python/PIL (já tinha PIL disponível, sem instalar nada novo) pra `icon-192.png`, `icon-512.png` e `apple-icon.png` (180x180).
+- `app/manifest.ts` — convenção nativa do Next 16 (App Router), serve sozinho em `/manifest.webmanifest`, sem precisar de `public/manifest.json` + `<link>` manual. Nome "Moppy Admin", cor da marca `#7C3AED` (mesma do app mobile), `display: "standalone"`.
+- `public/sw.js` — service worker mínimo (um listener de `fetch` vazio, sem cache/offline) só pra satisfazer o critério de instalabilidade do Chrome; o admin sempre precisa de dado ao vivo do Firestore, então cache ativo faria mais mal que bem. Registrado via `components/RegisterSW.tsx` (client component, `useEffect` + `navigator.serviceWorker.register`), montado no layout raiz.
+- `app/layout.tsx`: `metadata.appleWebApp` (pra "Adicionar à Tela de Início" no iOS) + `viewport.themeColor`.
+- **Confirmado com `next build`** (não só `tsc`): rota `/manifest.webmanifest` e `/apple-icon.png` geradas certinho na lista de rotas. Deploy feito (commit `6ed2252`).
+- **Não testado visualmente** — falta abrir o Chrome/Edge (desktop ou Android) depois do deploy e confirmar que aparece o ícone/prompt de "Instalar app".
+- **De passagem, achado sem mexer:** `firestore.indexes.json` está com uma mudança não commitada (2 índices novos em `orders`, por `client_id` e `cleaner_id` + `scheduled_at`) de uma sessão anterior — não é desta tarefa, deixei como está, só registrando pra não se perder.
 
