@@ -343,3 +343,9 @@ Pedido do Jehu: subir o admin na Vercel pra testar e, em paralelo, preparar o mo
 - `tsc --noEmit` limpo. Deploy feito (commit `8133ed8`).
 - **Reparado de passagem, não corrigido:** a mesma screenshot mostra "0.0 km" nos dois pedidos do feed — pode ser real (endereço de teste igual ao da faxineira) ou bug no cálculo de distância (`distanceKm` em `src/utils/geo.ts`, usado em `buscar.tsx:168-170`). Não investigado a fundo nesta sessão — Jehu não confirmou se é esperado ou não.
 
+**2026-09-16 — Bug real: modal de filtros (feed de pedidos da faxineira) não fechava clicando fora**
+- Jehu reportou, testando o feed de pedidos: abrir "Filtros" e tocar no fundo escurecido não fechava o modal — só dava pra fechar apertando "Aplicar filtros".
+- **Causa raiz:** `app/(cleaner)/buscar.tsx`, o fundo do modal (`modalOverlay`) era uma `View` comum, sem nenhum handler de toque.
+- **Corrigido:** `modalOverlay` virou `Pressable` com `onPress={() => setShowFilters(false)}`; a folha de filtros (`modalSheet`) também virou `Pressable`, com `onPress={(e) => e.stopPropagation()}` pra tocar dentro da folha não contar como "fora" e fechar sem querer.
+- `tsc --noEmit` limpo. Deploy feito (commit `b94eb47`).
+
