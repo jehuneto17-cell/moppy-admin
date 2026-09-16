@@ -133,11 +133,20 @@ export default function AprovacoesPage() {
                 <div className="flex flex-col gap-1.5">
                   {Object.entries(DOC_LABELS).map(([key, label]) => {
                     const docEntry = active.documents?.[key];
-                    return (
-                      <div key={key} className="flex justify-between rounded-lg border border-border px-3 py-2.5">
+                    const row = (
+                      <div className="flex justify-between rounded-lg border border-border px-3 py-2.5">
                         <span className="text-sm text-ink">{label}</span>
-                        <span className={`text-xs ${docEntry ? "text-success" : "text-danger"}`}>{docEntry ? "Enviado" : "Faltando"}</span>
+                        <span className={`text-xs ${docEntry ? "text-success underline" : "text-danger"}`}>
+                          {docEntry ? "Ver foto" : "Faltando"}
+                        </span>
                       </div>
+                    );
+                    return docEntry ? (
+                      <a key={key} href={docEntry.storage_url} target="_blank" rel="noopener noreferrer">
+                        {row}
+                      </a>
+                    ) : (
+                      <div key={key}>{row}</div>
                     );
                   })}
                 </div>
