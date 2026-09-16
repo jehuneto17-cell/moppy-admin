@@ -55,11 +55,16 @@ export default function AprovacoesPage() {
       });
       showToast(`${active.email} reprovado`, "error");
     } else {
+      const verifiedUpdates: Record<string, boolean> = {};
+      for (const key of Object.keys(active.documents ?? {})) {
+        verifiedUpdates[`documents.${key}.verified`] = true;
+      }
       await updateDoc(doc(db, "cleaners", active.id), {
         approval_status: "approved",
         approval_date: serverTimestamp(),
         is_active: true,
         updated_at: serverTimestamp(),
+        ...verifiedUpdates,
       });
       showToast(`${active.email} aprovado`, "success");
     }
