@@ -283,3 +283,15 @@ Pedido do Jehu: subir o admin na Vercel pra testar e, em paralelo, preparar o mo
 
 **Conta de teste criada durante essa investigação:** `moppy.teste.faxineira@gmail.com` (Firebase Auth + Firestore, role faxineira, sem documentos KYC de verdade — só 2 uploads de teste no Cloudinary em `Moppy/kyc/id_document/`, pode apagar). Não excluída ainda — perguntar ao Jehu se quer manter pra testes futuros ou remover.
 
+**2026-09-16 — Descoberto: cadastro de faxineira não pede data de nascimento/idade**
+- Jehu perguntou se o app pede data de nascimento ou idade em algum lugar do cadastro (cliente ou faxineira). Conferido em código e no `DATABASE.md`: não pede, em nenhuma etapa.
+- O schema tem `approval_rejection_reason: "underage"` como opção de motivo de reprovação, mas é só texto livre escolhido pelo admin **olhando a foto do documento** — não existe nenhum campo estruturado de nascimento/idade nem validação automática de maioridade. Não implementado nesta sessão (só diagnóstico, Jehu não pediu a mudança).
+
+**2026-09-16 — Copy: cadastro de faxineira agora pede frente e verso do RG/CNH**
+- Antes, o passo 2 do cadastro (`cpf_document`) pedia uma foto solta do "documento de CPF" (cartão físico que quase ninguém tem mais hoje). Jehu sugeriu: manter os mesmos campos, só trocar o texto pra pedir o **verso do RG/CNH** nesse passo (o passo 1 já pede a frente) — sem mudar nada de lógica.
+- **Implementado só como texto**, em 3 lugares pra ficar consistente ponta a ponta (mobile → admin):
+  - `moppy-mobile/app/(cleaner-onboarding)/documentos.tsx`: passo 1 "Frente do documento", passo 2 "Verso do documento" (continua pedindo o CPF digitado nesse mesmo passo)
+  - `moppy-mobile/app/(cleaner-onboarding)/aguardando.tsx`: checklist "Frente do documento validada" / "Verso do documento e CPF validados"
+  - `moppy-admin/app/aprovacoes/page.tsx`: rótulo no painel de aprovação "RG/CNH (frente)" / "RG/CNH (verso) + CPF"
+- Nenhum campo do Firestore mudou (continua `documents.id_document`/`documents.cpf_document`, cada um com `storage_url`). `tsc --noEmit` limpo nos dois repos. Deploy feito (`moppy-mobile` commit `154a155`, `moppy-admin` commit `5b89925`). Não testado visualmente ainda.
+
