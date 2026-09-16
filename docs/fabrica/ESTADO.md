@@ -321,5 +321,11 @@ Pedido do Jehu: subir o admin na Vercel pra testar e, em paralelo, preparar o mo
 - **Corrigido também:** o link "Ver foto" (feature de mais cedo hoje) usava `<a target="_blank">`, tirando o admin do painel. Trocado por um modal (`<iframe>` — funciona pra imagem e PDF sem precisar detectar o tipo) que abre por cima da própria tela, com botão "✕ Fechar".
 - `tsc --noEmit` limpo nos dois repos. Deploy feito (`moppy-mobile` commit `6c4be84`, `moppy-admin` commit `b5544ad`). Não testado visualmente ainda.
 
+**2026-09-16 — Bug real: modal de foto mostrava a imagem gigante, com scroll**
+- Jehu testou o modal (feature de mais cedo hoje) e a foto abria no tamanho real (ex: um RG fotografado no celular, resolução alta), preenchendo o modal e exigindo rolar pra ver o documento inteiro.
+- **Causa raiz:** o `<iframe>` ocupava `h-full w-full` do modal — o visualizador de imagem nativo do navegador dentro do iframe renderiza a 100%/fit-width, não encolhe a imagem pra caber.
+- **Corrigido:** trocado por `<img>` com `object-contain` e `max-h-[85vh] max-w-full` — encolhe mantendo proporção, sem cortar. O `<iframe>` continua existindo só como fallback (`onError` da `<img>`, dispara se `storage_url` não for uma imagem de verdade — ex. PDF do comprovante de endereço).
+- `tsc --noEmit` limpo. Deploy feito (commit `0742143`).
+
 **Próximo pedido do Jehu, ainda não iniciado:** transformar o `moppy-admin` num PWA instalável ("baixável").
 
