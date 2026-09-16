@@ -343,6 +343,16 @@ Pedido do Jehu: subir o admin na Vercel pra testar e, em paralelo, preparar o mo
 - `tsc --noEmit` limpo. Deploy feito (commit `8133ed8`).
 - **Reparado de passagem, não corrigido:** a mesma screenshot mostra "0.0 km" nos dois pedidos do feed — pode ser real (endereço de teste igual ao da faxineira) ou bug no cálculo de distância (`distanceKm` em `src/utils/geo.ts`, usado em `buscar.tsx:168-170`). Não investigado a fundo nesta sessão — Jehu não confirmou se é esperado ou não.
 
+**2026-09-16 — Bug real: aprovar cadastro nunca marcava os documentos como "verified"**
+- Jehu perguntou por que a tela de perfil (`app/(cleaner)/perfil.tsx`) ainda mostrava os 4 documentos "Em análise" mesmo depois de aprovar o cadastro no painel admin.
+- **Causa raiz:** `perfil.tsx` decide o badge ("Pendente"/"Em análise"/"Aprovado") olhando `documents.<key>.verified` por documento. Esse campo só é escrito como `false` na submissão (`termos.tsx`) — nenhum lugar do código nunca virava `true`, nem o botão "Aprovar" do admin (`handleDecide`, só mexia em `approval_status`/`approval_date`/`is_active`). Confirmado com grep: `verified: true` só existia em exemplo de doc no `DATABASE.md`, nunca no código real.
+- **Corrigido:** "Aprovar" no painel agora também grava `documents.<key>.verified: true` em cada documento que a faxineira enviou. `tsc --noEmit` limpo. Deploy feito (commit `7834620`).
+- **Cadastro já aprovado no banco corrigido manualmente**, com autorização explícita: script único (`firebase-admin`, `.env.local` do admin, apagado depois) que olhou todo `cleaners` com `approval_status: approved` e marcou `verified: true` em documento que ainda estivesse `false`. Só 1 doc encontrado (`5py8rsPsPRPiM4UMngHKD2XB3Om2`), 4 documentos corrigidos.
+
+**2026-09-16 — Explicado ao Jehu: por que o cadastro de faxineira não pede endereço fixo**
+- Jehu perguntou por que o cadastro de faxineira não pede endereço, diferente do cliente.
+- **É intencional, não bug** (confirmado lendo `app/(cleaner)/buscar.tsx`): a distância no feed de pedidos usa a localização ao vivo do GPS do celular (`useCleanerPosition`, `expo-location`) toda vez que abre a tela "Buscar", cruzando com `service_radius_km` (o raio escolhido no fim do onboarding, `termos.tsx`). Comentário no próprio código já documentava a decisão: "sem permissão ou fora de um dispositivo com GPS, a distância simplesmente não aparece". Diferente do cliente, cujo endereço cadastrado É o local do serviço.
+
 **2026-09-16 — Bug real: modal de filtros (feed de pedidos da faxineira) não fechava clicando fora**
 - Jehu reportou, testando o feed de pedidos: abrir "Filtros" e tocar no fundo escurecido não fechava o modal — só dava pra fechar apertando "Aplicar filtros".
 - **Causa raiz:** `app/(cleaner)/buscar.tsx`, o fundo do modal (`modalOverlay`) era uma `View` comum, sem nenhum handler de toque.
