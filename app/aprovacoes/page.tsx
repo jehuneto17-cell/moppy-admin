@@ -33,6 +33,7 @@ export default function AprovacoesPage() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [reason, setReason] = useState("");
   const [confirming, setConfirming] = useState<"approve" | "reject" | null>(null);
+  const [viewingUrl, setViewingUrl] = useState<string | null>(null);
   const { showToast } = useStore();
 
   useEffect(() => {
@@ -142,9 +143,9 @@ export default function AprovacoesPage() {
                       </div>
                     );
                     return docEntry ? (
-                      <a key={key} href={docEntry.storage_url} target="_blank" rel="noopener noreferrer">
+                      <button key={key} onClick={() => setViewingUrl(docEntry.storage_url)} className="text-left">
                         {row}
-                      </a>
+                      </button>
                     ) : (
                       <div key={key}>{row}</div>
                     );
@@ -193,6 +194,23 @@ export default function AprovacoesPage() {
               </motion.div>
             )}
           </AnimatePresence>
+        </div>
+      )}
+
+      {viewingUrl && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-8"
+          onClick={() => setViewingUrl(null)}
+        >
+          <div className="relative h-full w-full max-w-3xl" onClick={(e) => e.stopPropagation()}>
+            <button
+              onClick={() => setViewingUrl(null)}
+              className="absolute -top-10 right-0 text-lg text-white hover:opacity-80"
+            >
+              ✕ Fechar
+            </button>
+            <iframe src={viewingUrl} className="h-full w-full rounded-lg bg-white" />
+          </div>
         </div>
       )}
     </AdminShell>
