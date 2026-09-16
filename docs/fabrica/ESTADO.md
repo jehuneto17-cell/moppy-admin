@@ -307,3 +307,9 @@ Pedido do Jehu: subir o admin na Vercel pra testar e, em paralelo, preparar o mo
 - **Nenhuma mudança no backend** — `lib/cloudinary.ts` já sobe com `resource_type: "image"`, que o Cloudinary aceita pra PDF também (gera preview por página); o link "Ver foto" do painel de aprovação (feature de hoje, acima) funciona igual pra PDF, só abre o arquivo na aba.
 - `tsc --noEmit` limpo. Deploy feito (commit `128f7e7`). **Não testado visualmente** — nem a escolha do arquivo pela UI nem a abertura do PDF no painel de aprovação foram exercitadas de verdade nesta sessão.
 
+**2026-09-16 — Bug real: caixa de Termos vazava por cima do checkbox (tela `termos.tsx`)**
+- Jehu mandou print do celular: na tela de raio de atuação/termos, "Ver políticas completas" aparecia sobreposto em cima do checkbox "Li e concordo com os Termos e Privacidade".
+- **Causa raiz:** `termsBox` tinha `maxHeight: 220` sem `overflow: "hidden"` nem scroll próprio — é uma `View` comum, não `ScrollView`. O conteúdo (texto dos termos + o link) passa de 220px, e sem clipping o excesso vaza pra fora da caixa e cai por cima do que vem depois.
+- **Corrigido:** removido o `maxHeight` — a tela inteira já é um `ScrollView`, a caixa não precisava de altura fixa, só cresce com o conteúdo agora. `tsc --noEmit` limpo. Deploy feito (commit `9cbdc48`).
+- **Não confirmado visualmente ainda** — Jehu vai testar no celular de novo.
+
