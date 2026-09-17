@@ -2,6 +2,7 @@ import { FieldValue } from "firebase-admin/firestore";
 import { NextRequest, NextResponse } from "next/server";
 
 import { adminDb } from "@/lib/firebase-admin";
+import { sendPushNotification } from "@/lib/notifications";
 import { isEventProcessed, logPaymentEvent, pushPaymentStatus } from "@/lib/payments";
 
 // O Asaas autentica o webhook devolvendo, em todo POST, o header `asaas-access-token`
@@ -114,6 +115,11 @@ async function handleTransferEvent(eventId: string, event: string, transfer: { i
       .doc(data.withdraw_history_doc_id)
       .update({ status: "failed", fail_reason: transfer.failReason ?? null });
     await transferRef.update({ status: event === "TRANSFER_FAILED" ? "failed" : "cancelled" });
+    await sendPushNotification(
+      data.cleaner_id,
+      "Saque não foi concluído",
+      "Seu saque não foi processado — o valor já voltou pra sua carteira. Confira sua chave PIX no perfil e tente de novo."
+    );
     return NextResponse.json({ status: "reversed" });
   }
 
@@ -125,6 +131,7 @@ async function handleTransferEvent(eventId: string, event: string, transfer: { i
       .collection("withdraw_history")
       .doc(data.withdraw_history_doc_id)
       .update({ status: "done" });
+    await sendPushNotification(data.cleaner_id, "Saque concluído", "O valor já caiu na sua chave PIX.");
   }
 
   return NextResponse.json({ status: "processed" });

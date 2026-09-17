@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import * as asaas from "@/lib/asaas";
 import { adminDb } from "@/lib/firebase-admin";
+import { sendPushNotification } from "@/lib/notifications";
 import { logPaymentEvent, pushPaymentStatus } from "@/lib/payments";
 
 const STALE_MS = 30 * 60 * 1000; // 30min
@@ -52,6 +53,12 @@ export async function GET(req: NextRequest) {
       .collection("orders")
       .doc(doc.id)
       .update({ status: "cancelled", cancellation: { cancelled_by: "system", cancellation_reason: "cartão recusado, sem troca em 6h" }, updated_at: FieldValue.serverTimestamp() });
+    if (payment.client_id) {
+      await sendPushNotification(payment.client_id, "Pedido cancelado", "Cancelamos seu pedido porque não conseguimos cobrar o cartão a tempo.");
+    }
+    if (payment.cleaner_id) {
+      await sendPushNotification(payment.cleaner_id, "Pedido cancelado", "Um pedido que você tinha aceitado foi cancelado — o cliente não conseguiu pagar.");
+    }
     summary.cancelled_no_payment++;
   }
 

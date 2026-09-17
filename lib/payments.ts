@@ -2,6 +2,7 @@ import { FieldValue, Timestamp } from "firebase-admin/firestore";
 
 import * as asaas from "./asaas";
 import { adminDb } from "./firebase-admin";
+import { sendPushNotification } from "./notifications";
 import { computeSplit } from "./split";
 
 const RELEASE_DAYS = 15;
@@ -148,6 +149,11 @@ export async function chargeOrder(orderId: string) {
     if (attempt > MAX_CHARGE_RETRIES) {
       await paymentRef.set({ charge_attempt: attempt, next_retry_at: null }, { merge: true });
       await pushPaymentStatus(orderId, "charge_failed");
+      await sendPushNotification(
+        payment.client_id,
+        "Não conseguimos cobrar seu cartão",
+        "Tentamos algumas vezes e não deu certo. Atualize o cartão no app pra não perder a faxineira — senão o pedido será cancelado em algumas horas."
+      );
       return { outcome: "failed" as const, error: errorMessage };
     }
 
