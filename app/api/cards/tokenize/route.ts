@@ -55,6 +55,11 @@ export async function POST(req: NextRequest) {
         mobilePhone: finalPhone,
       });
       asaasCustomerId = customer.id;
+      // Salva assim que o cliente é criado no Asaas, não só no fim — se
+      // tokenizeCard falhar logo abaixo (cartão recusado, CVV errado), sem
+      // isso a próxima tentativa não acha asaas_customer_id e cria outro
+      // cliente do zero, duplicando cliente na conta Asaas a cada tentativa.
+      await userRef.set({ asaas_customer_id: asaasCustomerId, updated_at: FieldValue.serverTimestamp() }, { merge: true });
     }
 
     tokenized = await asaas.tokenizeCard({
