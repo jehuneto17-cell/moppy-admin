@@ -425,3 +425,13 @@ Jehu pediu uma verificação completa do fluxo de dinheiro nos dois repos + o qu
 - **Corrigido:** `modalOverlay` virou `Pressable` com `onPress={() => setShowFilters(false)}`; a folha de filtros (`modalSheet`) também virou `Pressable`, com `onPress={(e) => e.stopPropagation()}` pra tocar dentro da folha não contar como "fora" e fechar sem querer.
 - `tsc --noEmit` limpo. Deploy feito (commit `b94eb47`).
 
+**2026-09-16 — Feature (UX da auditoria): cliente e faxineira podem cancelar o pedido pelo app**
+- Primeiro item da parte de UX da auditoria de pagamento — Jehu escolheu começar por esse (maior buraco de autoatendimento: `cancelOrder` já tinha toda a regra dos 5 cenários pronta, só o admin conseguia acionar).
+- `app/api/orders/[orderId]/cancel-self/route.ts` (novo, admin): autenticado por Bearer idToken (não cookie de sessão, pra servir o mobile), deduz o papel (`client`/`cleaner`) de quem de fato está no pedido — não confia no que vem no corpo. Notifica a outra parte via `sendPushNotification`.
+- `moppy-mobile`: `src/components/order/CancelOrderSheet.tsx` (modal compartilhado, motivo obrigatório) ligado em `(client)/pedido/[id]/index.tsx` (aba "Faxineiras interessadas" e tela de acompanhamento) e `(cleaner)/pedido/[id]/index.tsx` (só quando confirmado e ainda não chegou).
+- **Testado de verdade contra produção**, pedido sintético (`orders/test-cancel-self-order-1`, apagado no final), logado como a conta de teste: cancelamento do próprio pedido → `200`, `order.status: "cancelled"`, `payment_outcome: "cancelled_free"` corretos; pedido de outro uid → `403`; motivo vazio → `400`; pedido já cancelado → `409`. Os 4 bateram.
+- `tsc --noEmit` limpo nos dois repos. Commits: `cc5658f` (endpoint), `2018125` (UI mobile).
+- **Não testado:** o cenário com pagamento já cobrado (`charge_success`) — exigiria uma cobrança real no sandbox antes de cancelar, pra exercitar o caminho de estorno/compensação de 30%. A lógica em si (`cancelOrder`) já roda em produção há dias no fluxo do admin, então o risco é baixo, mas não foi exercitado por essa via nova.
+
+**Restante da UX da auditoria de pagamento, ainda não iniciado:** status de pagamento visível pro cliente, excluir cartão salvo, painel financeiro com pendências/alertas, notificação de disputa aberta/decidida e chargeback.
+
