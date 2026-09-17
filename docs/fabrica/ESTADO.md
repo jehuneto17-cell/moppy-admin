@@ -357,6 +357,14 @@ Pedido do Jehu: subir o admin na Vercel pra testar e, em paralelo, preparar o mo
 - `tsc --noEmit` limpo. Deploy feito (commit `595eab5`).
 - **Jehu perguntou "e sobre a carteira?" em seguida** — `useWallet.ts` (usado só na tela Carteira) tinha o mesmo padrão de bug, mas sem redirect envolvido: o sintoma ali era só piscar "Nenhum serviço concluído ainda" por uma fração de segundo antes do saldo real aparecer, na primeira montagem da aba. Corrigido com o mesmo fix (state único com uid). `tsc --noEmit` limpo. Deploy feito (commit `82c6f41`).
 
+**2026-09-16 — Bug real: chave PIX nunca funcionava pra sacar**
+- Jehu perguntou se a chave PIX estava funcionando. Não estava — achado lendo `perfil.tsx` junto com `app/api/wallets/withdraw/route.ts` (não dava pra ver só um lado).
+- **Causa raiz:** `handleSavePix` em `perfil.tsx` sempre gravava `pix.key_type: "auto"` — uma string que não corresponde a nada. O endpoint de saque (`PIX_KEY_TYPE` em `withdraw/route.ts`) só reconhece `cpf`/`email`/`phone`/`random` → `CPF`/`EMAIL`/`PHONE`/`EVP` (tipos que o Asaas exige em `createPixTransfer`); `PIX_KEY_TYPE["auto"]` é `undefined`, e o endpoint recusa com "tipo de chave PIX inválido — corrija no seu perfil". Ou seja: toda chave PIX salva por essa tela sempre falhava no saque, sem exceção, desde que essa tela foi feita.
+- **Por que "auto" nunca daria certo mesmo implementado de verdade:** CPF e telefone com DDD têm o mesmo formato no Brasil (11 dígitos) — não dá pra distinguir com segurança só pelo valor digitado.
+- **Corrigido:** a tela agora pede pra faxineira escolher o tipo da chave explicitamente (chips CPF/E-mail/Telefone/Aleatória, mesmo padrão visual do raio de atuação) e salva o tipo escolhido de verdade.
+- `tsc --noEmit` limpo. Deploy feito (commit `2123b34`).
+- **Conta de teste com chave PIX salva antes desse fix** (se houver) continua com `key_type: "auto"` no banco até a faxineira abrir Perfil → Chave PIX e apertar "Salvar" de novo (agora escolhendo o tipo certo) — não precisou de backfill por script, é uma ação simples que a própria tela corrigida resolve.
+
 **2026-09-16 — Explicado ao Jehu: por que o cadastro de faxineira não pede endereço fixo**
 - Jehu perguntou por que o cadastro de faxineira não pede endereço, diferente do cliente.
 - **É intencional, não bug** (confirmado lendo `app/(cleaner)/buscar.tsx`): a distância no feed de pedidos usa a localização ao vivo do GPS do celular (`useCleanerPosition`, `expo-location`) toda vez que abre a tela "Buscar", cruzando com `service_radius_km` (o raio escolhido no fim do onboarding, `termos.tsx`). Comentário no próprio código já documentava a decisão: "sem permissão ou fora de um dispositivo com GPS, a distância simplesmente não aparece". Diferente do cliente, cujo endereço cadastrado É o local do serviço.
