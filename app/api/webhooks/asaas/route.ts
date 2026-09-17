@@ -1,3 +1,4 @@
+import { FieldValue } from "firebase-admin/firestore";
 import { NextRequest, NextResponse } from "next/server";
 
 import { adminDb } from "@/lib/firebase-admin";
@@ -12,8 +13,18 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json();
-  const { id: eventId, event, payment } = body ?? {};
-  if (!eventId || !event || !payment?.externalReference) {
+  const { id: eventId, event, payment, transfer } = body ?? {};
+  if (!eventId || !event) {
+    return NextResponse.json({ error: "payload inválido" }, { status: 400 });
+  }
+
+  // Eventos de transferência (saque da faxineira) — payload separado de payment,
+  // tratado à parte porque não tem order_id nenhum envolvido.
+  if (transfer?.id) {
+    return handleTransferEvent(eventId, event, transfer);
+  }
+
+  if (!payment?.externalReference) {
     return NextResponse.json({ error: "payload inválido" }, { status: 400 });
   }
 
@@ -50,6 +61,70 @@ export async function POST(req: NextRequest) {
       break;
     default:
       break;
+  }
+
+  return NextResponse.json({ status: "processed" });
+}
+
+// TRANSFER_FAILED/TRANSFER_CANCELLED: o saque é debitado da carteira na hora que a
+// faxineira pede (POST /api/wallets/withdraw), otimista — se a transferência falhar
+// depois (chave PIX inválida, conta bloqueada, etc.), sem isso o dinheiro simplesmente
+// sumia do saldo sem devolução automática. Ver ESTADO.md 2026-09-16.
+async function handleTransferEvent(eventId: string, event: string, transfer: { id: string; status?: string; failReason?: string }) {
+  const transferRef = adminDb.collection("transfers").doc(transfer.id);
+  const transferSnap = await transferRef.get();
+  if (!transferSnap.exists) {
+    // Transferência que não veio do fluxo de saque da faxineira (ex: teste manual
+    // no painel do Asaas) — nada pra reconciliar aqui.
+    return NextResponse.json({ status: "ignored", reason: "transfer não rastreada" });
+  }
+
+  const alreadyProcessed = await transferRef.collection("events").where("asaas_event_id", "==", eventId).limit(1).get();
+  if (!alreadyProcessed.empty) {
+    return NextResponse.json({ status: "already_processed" });
+  }
+  await transferRef.collection("events").add({ event, asaas_event_id: eventId, timestamp: FieldValue.serverTimestamp() });
+
+  const data = transferSnap.data()!;
+
+  if (event === "TRANSFER_FAILED" || event === "TRANSFER_CANCELLED") {
+    if (data.status === "failed" || data.status === "cancelled") {
+      return NextResponse.json({ status: "already_failed" });
+    }
+    const walletRef = adminDb.collection("wallets").doc(data.cleaner_id);
+    const wallet = (await walletRef.get()).data();
+    const balance = wallet?.balance ?? { total: 0, pending_release: 0, available: 0 };
+    await walletRef.update({
+      "balance.available": balance.available + data.amount,
+      "balance.total": balance.total + data.amount,
+      updated_at: FieldValue.serverTimestamp(),
+    });
+    await walletRef.collection("transactions").add({
+      type: "withdraw_reversed",
+      amount: data.amount,
+      balance_after: balance.total + data.amount,
+      withdraw_id: transfer.id,
+      reason: `Saque falhou (${transfer.failReason ?? event}) — valor devolvido`,
+      timestamp: FieldValue.serverTimestamp(),
+    });
+    await adminDb
+      .collection("cleaners")
+      .doc(data.cleaner_id)
+      .collection("withdraw_history")
+      .doc(data.withdraw_history_doc_id)
+      .update({ status: "failed", fail_reason: transfer.failReason ?? null });
+    await transferRef.update({ status: event === "TRANSFER_FAILED" ? "failed" : "cancelled" });
+    return NextResponse.json({ status: "reversed" });
+  }
+
+  if (event === "TRANSFER_DONE") {
+    await transferRef.update({ status: "done" });
+    await adminDb
+      .collection("cleaners")
+      .doc(data.cleaner_id)
+      .collection("withdraw_history")
+      .doc(data.withdraw_history_doc_id)
+      .update({ status: "done" });
   }
 
   return NextResponse.json({ status: "processed" });

@@ -69,12 +69,24 @@ export async function POST(req: NextRequest) {
     reason: "Saque solicitado pela faxineira",
     timestamp: FieldValue.serverTimestamp(),
   });
-  await adminDb.collection("cleaners").doc(cleanerId).collection("withdraw_history").add({
+  const historyRef = await adminDb.collection("cleaners").doc(cleanerId).collection("withdraw_history").add({
     amount,
     pix_key: pix.key_value,
     status: transfer.status,
     asaas_transfer_id: transfer.id,
     requested_at: FieldValue.serverTimestamp(),
+  });
+  // Documento no topo, indexado pelo id da transferência do Asaas — o webhook de
+  // TRANSFER_* (não existe hoje, ver route.ts de /api/webhooks/asaas) precisa achar
+  // de qual faxineira/saque se trata sem varrer todo mundo. O saldo já foi debitado
+  // acima (otimista, igual o resto do fluxo de pagamento); se a transferência falhar
+  // de verdade, é o webhook que credita de volta usando esse documento.
+  await adminDb.collection("transfers").doc(transfer.id).set({
+    cleaner_id: cleanerId,
+    amount,
+    withdraw_history_doc_id: historyRef.id,
+    status: transfer.status,
+    created_at: FieldValue.serverTimestamp(),
   });
 
   return NextResponse.json({ ok: true, transferId: transfer.id, availableBalance: newAvailable });
