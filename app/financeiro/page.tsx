@@ -2,7 +2,7 @@
 
 import { collection, getDocs } from "firebase/firestore";
 import { motion } from "framer-motion";
-import { ArrowUpFromLine, Download, FileText, RotateCcw, type LucideIcon } from "lucide-react";
+import { AlertTriangle, ArrowUpFromLine, Download, FileText, RotateCcw, type LucideIcon } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { AdminShell } from "@/components/AdminShell";
@@ -42,6 +42,8 @@ function statusHistoryTime(history: any[] | undefined, status: string): Date | n
   return entry ? toDate(entry.timestamp) : null;
 }
 
+type PendingItem = { key: string; label: string; detail: string };
+
 const PERIOD_OPTIONS = ["Este mês", "Mês anterior", "Últimos 90 dias", "Este ano"];
 
 function periodRange(period: string): { start: Date; end: Date } {
@@ -62,6 +64,7 @@ function periodRange(period: string): { start: Date; end: Date } {
 
 export default function FinanceiroPage() {
   const [rows, setRows] = useState<Row[] | null>(null);
+  const [pending, setPending] = useState<PendingItem[]>([]);
   const [cities, setCities] = useState<string[]>([]);
   const [period, setPeriod] = useState("Este mês");
   const [tipo, setTipo] = useState("Todos");
@@ -72,10 +75,11 @@ export default function FinanceiroPage() {
     let cancelled = false;
 
     async function load() {
-      const [paymentsSnap, walletsSnap, ordersSnap] = await Promise.all([
+      const [paymentsSnap, walletsSnap, ordersSnap, transfersSnap] = await Promise.all([
         getDocs(collection(db, "payments")),
         getDocs(collection(db, "wallets")),
         getDocs(collection(db, "orders")),
+        getDocs(collection(db, "transfers")),
       ]);
 
       const cityByOrderId = new Map<string, string>();
@@ -150,8 +154,36 @@ export default function FinanceiroPage() {
       });
 
       out.sort((a, b) => b.date.getTime() - a.date.getTime());
+
+      // Pendências: nada aqui precisa de leitura extra, os dados já foram buscados
+      // acima — só reclassifica o que já veio de payments/transfers.
+      const pendingOut: PendingItem[] = [];
+      paymentsSnap.docs.forEach((d) => {
+        const p = d.data();
+        if (p.status === "charge_failed") {
+          pendingOut.push({ key: `${d.id}-charge_failed`, label: "Cobrança falhou", detail: `Pedido ${d.id.slice(0, 8)} — cliente ${p.client_id?.slice(0, 8) ?? "?"}` });
+        } else if (p.status === "charge_retry_1" || p.status === "charge_retry_2") {
+          pendingOut.push({ key: `${d.id}-retry`, label: "Cobrança em nova tentativa", detail: `Pedido ${d.id.slice(0, 8)} — tentativa ${p.status.slice(-1)}` });
+        } else if (p.status === "refund_failed") {
+          pendingOut.push({ key: `${d.id}-refund_failed`, label: "Estorno falhou", detail: `Pedido ${d.id.slice(0, 8)} — precisa de ação manual` });
+        }
+        if (p.balance_frozen) {
+          pendingOut.push({ key: `${d.id}-chargeback`, label: "Chargeback ativo", detail: `Pedido ${d.id.slice(0, 8)} — saldo da faxineira congelado` });
+        }
+      });
+      const stuckCutoff = Date.now() - 2 * 60 * 60 * 1000; // 2h — normalmente resolve em minutos
+      transfersSnap.docs.forEach((d) => {
+        const t = d.data();
+        if (["done", "failed", "cancelled"].includes(t.status)) return;
+        const createdAt = toDate(t.created_at);
+        if (createdAt && createdAt.getTime() < stuckCutoff) {
+          pendingOut.push({ key: `${d.id}-stuck`, label: "Saque travado", detail: `Faxineira ${t.cleaner_id?.slice(0, 8) ?? "?"} — ${formatMoney(t.amount ?? 0)}, sem confirmação do Asaas` });
+        }
+      });
+
       if (!cancelled) {
         setRows(out);
+        setPending(pendingOut);
         setCities(Array.from(new Set(Array.from(cityByOrderId.values()))).sort());
       }
     }
@@ -225,6 +257,23 @@ export default function FinanceiroPage() {
         <FilterDropdown label="Cidade" value={city} options={["Todas", ...cities]} onChange={setCity} />
         <FilterDropdown label="Tipo" value={tipo} options={["Todos", "Comissão", "Estorno", "Saque"]} onChange={setTipo} />
       </div>
+
+      {pending.length > 0 && (
+        <div className="mb-6 rounded-lg border border-danger-bg bg-danger-bg p-4 print:hidden">
+          <div className="mb-2 flex items-center gap-2">
+            <AlertTriangle size={16} className="text-danger" />
+            <span className="text-sm font-bold text-danger-dark">{pending.length} pendência{pending.length > 1 ? "s" : ""} precisando de atenção</span>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            {pending.map((p) => (
+              <div key={p.key} className="flex items-center gap-2 text-xs">
+                <span className="w-fit shrink-0 rounded-full bg-white px-2 py-0.5 font-medium text-danger-dark">{p.label}</span>
+                <span className="text-ink-soft">{p.detail}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="mb-6 grid grid-cols-4 gap-4">
         <SummaryCard label="Total comissionado" value={formatMoney(totals.comissao)} colorClass="text-brand" iconBg="bg-brand-tint-strong" iconColor="text-brand" Icon={ArrowUpFromLine} loading={rows === null} />

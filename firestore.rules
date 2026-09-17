@@ -214,6 +214,21 @@ service cloud.firestore {
       }
     }
 
+    // transfers: rastreio de saque (webhook de TRANSFER_* não carrega order_id, esse
+    // doc é a única forma de amarrar o evento a uma faxineira/withdraw_history — ver
+    // ESTADO.md 2026-09-16). Só backend escreve; painel Financeiro do admin lê pra
+    // mostrar saques travados nas pendências.
+    match /transfers/{transferId} {
+      allow read: if isAuthenticated() && isAdmin();
+      allow create, update: if isAdmin() ||
+        request.auth == null;  // Apenas backend (Admin SDK)
+
+      match /events/{eventId} {
+        allow read: if isAuthenticated() && isAdmin();
+        allow create: if request.auth == null;  // Webhook (sem autenticação)
+      }
+    }
+
     // city_pricing: tabela de preços por cidade (Preços por Cidade, admin). Leitura
     // pública autenticada porque o app mobile precisa consultar o preço vigente.
     match /city_pricing/{cityId} {
