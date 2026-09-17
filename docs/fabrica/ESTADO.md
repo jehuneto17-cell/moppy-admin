@@ -403,7 +403,17 @@ Jehu pediu uma verificação completa do fluxo de dinheiro nos dois repos + o qu
 - Não dá pra excluir um cartão salvo (`useCards.ts` só tem `addCard`)
 - Painel Financeiro do admin é só histórico, sem seção de pendências/alertas
 - Notificação de disputa aberta/decidida e chargeback ainda não ligadas (ficou de fora do escopo "dinheiro" desta rodada)
-- `tsc --noEmit` limpo em todos os commits acima. **Nada testado ao vivo contra o sandbox nesta sessão** — só leitura de código + typecheck. Testar de verdade (cartão recusado, saque com chave inválida) antes de considerar resolvido pra produção.
+- `tsc --noEmit` limpo em todos os commits acima.
+
+**2026-09-16 — Testado de verdade: webhook de transferência PIX + dedup de cliente Asaas**
+- Jehu pediu pra testar os fixes antes de seguir pra UX. Autorização explícita pra escrever dados sintéticos de teste em produção (revertidos no final) e chamar o sandbox do Asaas.
+- **Webhook de transferência (item 3):** script com carteira de teste isolada (`wallets/test-webhook-cleaner-9f2a`, nunca existiu antes, apagada no final) chamando `POST https://moppy-admin.vercel.app/api/webhooks/asaas` de verdade, 4 cenários, todos bateram:
+  1. `TRANSFER_FAILED` credita de volta (150→200) + marca `withdraw_history` "failed" com `fail_reason` + marca `transfers/{id}` "failed"
+  2. Reenviar o mesmo `asaas_event_id` → `"already_processed"`, saldo não muda de novo (idempotência confirmada)
+  3. `TRANSFER_DONE` não altera saldo, só confirma status "done"
+  4. Transfer id que não existe em `transfers/*` (não veio do fluxo de saque) → `"ignored"`, sem erro
+- **Dedup de cliente Asaas (item 4):** confirmado contra o sandbox real — criado um cliente de teste (sucesso, `cus_000009137117`, apagado no final) e tentado tokenizar com dado inválido de propósito (mês de vencimento invalido) → falhou com 400 como esperado. Confirma a premissa do bug: `createCustomer` pode ter sucesso e `tokenizeCard` falhar depois — exatamente o que o fix precisa cobrir salvando o `asaas_customer_id` entre os dois passos.
+- **Não testados ponta a ponta pela UI** (exigiriam candidatura real com cartão recusado, ou forçar falha de upload — automação de câmera/GPS já se mostrou frágil nesta sessão): aviso de cobrança falha em `candidata.tsx`, disparo de notificação push (sem device com token real pra confirmar entrega), catch de upload na disputa. A lógica desses três segue o mesmo padrão já validado em outros pontos hoje (upload de KYC, `notify` cross-platform).
 
 **2026-09-16 — Explicado ao Jehu: por que o cadastro de faxineira não pede endereço fixo**
 - Jehu perguntou por que o cadastro de faxineira não pede endereço, diferente do cliente.
