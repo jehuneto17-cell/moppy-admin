@@ -2,6 +2,7 @@ import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { NextRequest, NextResponse } from "next/server";
 
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
+import { sendPushNotification } from "@/lib/notifications";
 import { pushPaymentStatus } from "@/lib/payments";
 
 const RESPONSE_WINDOW_HOURS = 24;
@@ -48,6 +49,13 @@ export async function POST(req: NextRequest) {
 
   await orderRef.update({ status: "disputed", updated_at: FieldValue.serverTimestamp() });
   await pushPaymentStatus(order_id, "disputa_aberta");
+  if (order.cleaner_id) {
+    await sendPushNotification(
+      order.cleaner_id,
+      "O cliente abriu uma disputa",
+      "Você tem 24h pra responder — o pagamento fica retido até a decisão."
+    );
+  }
 
   return NextResponse.json({ ok: true, disputeId: disputeRef.id });
 }

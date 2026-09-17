@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
 
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
+import { sendPushNotification } from "@/lib/notifications";
 import { runRefund, settleOrder } from "@/lib/payments";
 
 async function requireAdmin() {
@@ -61,6 +62,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ dis
       status: decision === "libera" ? "completed" : "cancelled",
       updated_at: FieldValue.serverTimestamp(),
     });
+
+    const decisionLabel = decision === "total" ? "reembolso total ao cliente" : decision === "libera" ? "pagamento liberado à faxineira" : "reembolso parcial ao cliente";
+    if (dispute.client_id) {
+      await sendPushNotification(dispute.client_id, "Disputa resolvida", `Decisão: ${decisionLabel}.`);
+    }
+    if (dispute.cleaner_id) {
+      await sendPushNotification(dispute.cleaner_id, "Disputa resolvida", `Decisão: ${decisionLabel}.`);
+    }
 
     return NextResponse.json({ ok: true, split: result?.split ?? null });
   } catch (e) {

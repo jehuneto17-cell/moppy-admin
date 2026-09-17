@@ -50,13 +50,22 @@ export async function POST(req: NextRequest) {
       }
       break;
     }
-    case "PAYMENT_CHARGEBACK_REQUESTED":
+    case "PAYMENT_CHARGEBACK_REQUESTED": {
       await pushPaymentStatus(orderId, "chargeback_requested");
       // Congela o saldo desse pedido: marca o crédito da carteira como não liberável
       // mesmo se D+15 já tiver passado. A trava real é o cron release-balance
       // checar esse campo antes de mover pending_release → available.
+      const chargebackPayment = (await adminDb.collection("payments").doc(orderId).get()).data();
       await adminDb.collection("payments").doc(orderId).set({ balance_frozen: true }, { merge: true });
+      if (chargebackPayment?.cleaner_id) {
+        await sendPushNotification(
+          chargebackPayment.cleaner_id,
+          "Pagamento contestado",
+          "O cliente contestou um pagamento com o banco. O valor desse pedido fica retido até resolver."
+        );
+      }
       break;
+    }
     case "PAYMENT_DELETED":
       // Cobrança removida do lado do Asaas — reconcilia no próximo /api/cron/reconcile.
       break;
