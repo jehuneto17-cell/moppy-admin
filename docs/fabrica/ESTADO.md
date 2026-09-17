@@ -365,6 +365,28 @@ Pedido do Jehu: subir o admin na Vercel pra testar e, em paralelo, preparar o mo
 - `tsc --noEmit` limpo. Deploy feito (commit `2123b34`).
 - **Conta de teste com chave PIX salva antes desse fix** (se houver) continua com `key_type: "auto"` no banco até a faxineira abrir Perfil → Chave PIX e apertar "Salvar" de novo (agora escolhendo o tipo certo) — não precisou de backfill por script, é uma ação simples que a própria tela corrigida resolve.
 
+**2026-09-16 — Bug real: animação de abrir/fechar seção do perfil ficava abrupta**
+- Jehu pediu pra melhorar a animação das seções do perfil (Dados Pessoais, Documentos, etc) — clicar na setinha abria/fechava sem transição suave.
+- **Causa raiz:** `AccordionSection.tsx` usava `entering={FadeIn}/exiting={FadeOut}` do reanimated, que monta/desmonta o conteúdo com só um fade — no build web isso depende do motor de layout animation do react-native-web, que às vezes só troca instantaneamente sem transição real.
+- **Corrigido:** trocado por animação de altura de verdade — mede o conteúdo com `onLayout` (guardado num state), anima `height`+`opacity` com `withTiming` a partir de um `useSharedValue`, mesmo padrão já usado na rotação do chevron ao lado. Não depende de nenhum sistema de entering/exiting, funciona igual em nativo e web. `tsc --noEmit` limpo. Deploy feito (commit `284f860`).
+
+**2026-09-16 — Bug real: link "Termos" no perfil não fazia nada**
+- Jehu reportou: clicar em "Termos" (dentro de "Mais", no perfil da faxineira) não fazia nada.
+- **Causa raiz:** era literalmente um `<Text>Termos</Text>` solto, sem `Pressable` nem `onPress` — nunca teve nenhum tipo de interação implementada.
+- **Corrigido:** criada `app/(cleaner)/termos-uso.tsx`, tela só de leitura reaproveitando o texto de Termos de Uso + Privacidade que já existe no onboarding (`(cleaner-onboarding)/termos.tsx`) — não reaproveitei a tela do onboarding direto porque ela também tem a lógica de aceite + raio de atuação + grava o cadastro inicial (`setDoc`), que não faz sentido rodar de novo numa revisita. Nome `termos-uso` (não `termos`) porque `(cleaner-onboarding)/termos.tsx` já resolve pra URL `/termos` — nomes iguais em grupos diferentes colidiriam.
+- **De passagem:** `.expo/types/router.d.ts` (tipos gerados do expo-router, gitignored) só é regenerado pelo `expo start` (dev server) — `expo export` (usado no build da Vercel) não atualiza esse arquivo. Como não rodei o dev server nesta sessão, precisei editar esse arquivo gerado à mão pra `tsc --noEmit` parar de reclamar da rota nova localmente; não afeta o deploy (a Vercel não roda `tsc`, só builda). Vai se autocorrigir sozinho na próxima vez que alguém rodar `expo start`.
+- `tsc --noEmit` limpo. Deploy feito (commit `10a15ce`).
+
+**2026-09-16 — Bug real: pedido continuava no feed depois da faxineira se candidatar**
+- Jehu reportou: candidaturas que ele aceita/envia não "ficam salvas" — voltando pro feed, o mesmo pedido aparece de novo como se nunca tivesse se candidatado.
+- **Causa raiz:** a candidatura salva certinho (`orders/{id}/applications/{uid}` + ponteiro em `cleaners/{uid}/my_applications`, `pedido/[id]/index.tsx`) e a própria tela de detalhe do pedido já sabia disso (mostrava "Você já se candidatou"). O problema era só a lista: `buscar.tsx` usa `useMyApplications` pra aba "Minhas candidaturas", mas nunca cruzava isso com a lista da aba "Feed de pedidos" — o pedido continuava aparecendo lá, clicável, como se nada tivesse acontecido.
+- **Corrigido:** `filteredOrders` (o `useMemo` que filtra o feed) agora também exclui qualquer pedido com application da faxineira, junto dos outros filtros (tipo/tamanho/data). `tsc --noEmit` limpo. Deploy feito (commit `d261d3d`).
+
+**2026-09-16 — Feature: popup próprio pra "Sair"/"Excluir conta" em vez do do navegador**
+- Jehu pediu: o `window.confirm`/`window.alert` do Chrome (usado desde o fix de 2026-09-16 mais cedo, pra contornar `Alert.alert` do React Native não existir no build web) tem cara de navegador, destoa visualmente do resto do app.
+- **Trocado por um `Modal` próprio** (`ProfileFooterActions.tsx`) com o mesmo estilo visual do app (cantos arredondados, cor da marca no botão de confirmar) — funciona igual em nativo e web, então o código ficou mais simples também: não precisa mais do `Platform.OS` pra decidir entre `Alert.alert` e `window.confirm`.
+- `tsc --noEmit` limpo. Deploy feito (commit `ba7a0ff`).
+
 **2026-09-16 — Explicado ao Jehu: por que o cadastro de faxineira não pede endereço fixo**
 - Jehu perguntou por que o cadastro de faxineira não pede endereço, diferente do cliente.
 - **É intencional, não bug** (confirmado lendo `app/(cleaner)/buscar.tsx`): a distância no feed de pedidos usa a localização ao vivo do GPS do celular (`useCleanerPosition`, `expo-location`) toda vez que abre a tela "Buscar", cruzando com `service_radius_km` (o raio escolhido no fim do onboarding, `termos.tsx`). Comentário no próprio código já documentava a decisão: "sem permissão ou fora de um dispositivo com GPS, a distância simplesmente não aparece". Diferente do cliente, cujo endereço cadastrado É o local do serviço.
